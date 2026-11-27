@@ -64,19 +64,44 @@ installed and updated without touching user data.
 
 ## 2. What works (verified)
 
-CI_RESULTS_PLACEHOLDER
+CI run [#18](https://github.com/metjus/cad/actions/runs/46082492855), both
+jobs green:
+
+- **Linux** (Ubuntu 24.04, OCCT 7.6, Qt 6.4): 51 unit/geometry/UI tests and
+  the UI smoke test (37 checks, real OCCT picking, screenshots).
+- **Windows** (MSVC 2022, OCCT 7.9, Qt 6.8, Velopack 1.2.161): the same 51
+  tests, the UI smoke test on Mesa software OpenGL, and the update round trip:
+
+| Check | Result |
+|---|---|
+| `Setup.exe --silent` installs 0.1.0-alpha per user | PASS |
+| Installed app checks the feed and is offered 0.1.1-alpha as a **delta** | PASS |
+| Delta package size | **15.9 KB** (full package 32.7 MB) |
+| Download, apply, automatic restart | PASS |
+| Restarted app reports version 0.1.1-alpha | PASS |
+| Settings written by 0.1.0 are read by 0.1.1 | PASS |
+| User data file survives the update | PASS |
+| Uninstall removes the program | PASS |
+| User data file survives uninstall | PASS |
+
+The delta is tiny here because 0.1.1 differs from 0.1.0 only in its version
+string; a real update's delta contains just the changed binaries.
+
+Installer size: `HybridCAD.App-stable-Setup.exe` 40.2 MB; installed program
+66.9 MB. The installer and release feed are attached to the CI run as the
+`HybridCAD-0.1.1-alpha-windows-x64-installer` artifact.
 
 ## 3. Tests
 
 | Suite | Count | Where |
 |---|---|---|
 | Unit + geometry (core, mesh, kernel, document, fuzzy search) | 38 | Linux + Windows |
-| UI unit tests (offscreen Qt) | 13 | Linux + Windows |
+| UI unit tests (Qt, no window shown) | 13 | Linux + Windows |
 | UI smoke test (real window, OCCT picking, screenshots) | 1 script, 37 checks | Linux (blocking), Windows (Mesa, non-blocking) |
 | Installer + update round trip | 1 script, 11 checks | Windows |
 
-Local run (Ubuntu 24.04, OCCT 7.6.3, Qt 6.4.2): 52/52 tests passed,
-smoke test passed.
+Local run (Ubuntu 24.04, OCCT 7.6.3, Qt 6.4.2): 52/52 tests passed
+(51 + smoke test). Same result in CI on Linux and Windows.
 
 ## 4. Screenshots
 
@@ -106,7 +131,10 @@ smoke test passed.
 ## 6. Known issues
 
 - On Windows CI the UI smoke test runs on Mesa software rendering and is
-  marked non-blocking.
+  marked non-blocking (it passed in the final run).
+- The Velopack C library ships its DLL as `velopack_libc_win_x64_msvc.dll`
+  while its import library expects `velopack_libc.dll`; the build copies it
+  under the expected name.
 - Grid is a fixed 400 × 400 mm with 10 mm cells; it does not adapt to zoom.
 - Clicking the view cube jumps to the view without animation.
 
