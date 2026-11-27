@@ -17,6 +17,10 @@ gtest_discover_tests(hcad_tests)
 if(TARGET hcad_ui)
   add_executable(hcad_ui_tests test_ui.cpp)
   target_link_libraries(hcad_ui_tests PRIVATE hcad_ui GTest::gtest)
+  if(HCAD_WITH_VELOPACK)
+    add_custom_command(TARGET hcad_ui_tests POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different ${HCAD_VELOPACK_DLL} $<TARGET_FILE_DIR:hcad_ui_tests>)
+  endif()
   gtest_discover_tests(hcad_ui_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" DISCOVERY_MODE PRE_TEST)
 endif()
 
