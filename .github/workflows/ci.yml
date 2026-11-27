@@ -135,7 +135,7 @@ jobs:
           vpk pack --packId $env:PACK_ID --packVersion "0.1.1-alpha" --packDir stage/0.1.1 --mainExe HybridCAD.exe `
             --packTitle HybridCAD --packAuthors "HybridCAD" --channel stable --outputDir releases
           Get-ChildItem releases | Format-Table Name, Length
-          if (-not (Get-ChildItem releases/*0.1.1-alpha-delta.nupkg)) { throw "no delta package was produced" }
+          if (-not (Get-ChildItem releases/*0.1.1-alpha*-delta.nupkg)) { throw "no delta package was produced" }
       - name: Install 0.1.0-alpha, update in-app to 0.1.1-alpha, uninstall
         run: ./packaging/windows/update-roundtrip.ps1 -Setup (Get-ChildItem installer-0.1.0/*Setup.exe).FullName -Feed "$pwd/releases" -PackId $env:PACK_ID -Expected 0.1.1-alpha
       - name: Upload installer and release feed
