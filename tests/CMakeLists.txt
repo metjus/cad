@@ -21,7 +21,7 @@ if(TARGET hcad_ui)
     add_custom_command(TARGET hcad_ui_tests POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different ${HCAD_VELOPACK_DLL} $<TARGET_FILE_DIR:hcad_ui_tests>)
   endif()
-  gtest_discover_tests(hcad_ui_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" DISCOVERY_MODE PRE_TEST)
+  gtest_discover_tests(hcad_ui_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 60)
 endif()
 
 if(TARGET hcad_app)

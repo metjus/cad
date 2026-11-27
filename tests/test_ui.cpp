@@ -232,13 +232,14 @@ TEST(MainWindow, NavigationPreferenceApplies) {
 }
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  if (::testing::GTEST_FLAG(list_tests)) return RUN_ALL_TESTS(); // test discovery: no Qt start-up
   qputenv("QT_QPA_PLATFORM", "offscreen");
   QStandardPaths::setTestModeEnabled(true);
   QApplication app(argc, argv);
   QApplication::setOrganizationName("HybridCAD");
   QApplication::setApplicationName("HybridCAD-UnitTest");
   QSettings().clear();
-  ::testing::InitGoogleTest(&argc, argv);
   const int rc = RUN_ALL_TESTS();
   QSettings().clear();
   return rc;
