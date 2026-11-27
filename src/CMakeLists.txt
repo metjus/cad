@@ -80,7 +80,11 @@ if(HCAD_BUILD_APP)
       message(FATAL_ERROR "Velopack x64 import library/DLL not found under ${VELOPACK_DIR}/lib")
     endif()
     list(GET _vpk_implibs 0 VELOPACK_IMPLIB)
-    list(GET _vpk_dlls 0 VELOPACK_DLL)
+    list(GET _vpk_dlls 0 _vpk_dll_src)
+    # The import library refers to "velopack_libc.dll", but the release ships
+    # it with a platform suffix; provide it under the expected name.
+    set(VELOPACK_DLL ${CMAKE_BINARY_DIR}/velopack-runtime/velopack_libc.dll)
+    configure_file(${_vpk_dll_src} ${VELOPACK_DLL} COPYONLY)
     set(HCAD_VELOPACK_DLL ${VELOPACK_DLL} CACHE INTERNAL "Velopack runtime DLL")
     message(STATUS "Velopack: ${VELOPACK_IMPLIB} / ${VELOPACK_DLL}")
     target_include_directories(hcad_ui PRIVATE ${VELOPACK_INCLUDE_DIR})
