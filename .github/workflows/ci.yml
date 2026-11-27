@@ -89,6 +89,13 @@ jobs:
         run: cmake --build build
       - name: Unit, geometry and UI tests
         run: |
+          # Qt in the build tree must find its platform plugin; otherwise it
+          # shows a blocking error dialog on Windows.
+          $prefix = "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
+          foreach ($d in @("$prefix\lib\qt6\plugins", "$prefix\plugins")) {
+            if (Test-Path "$d\platforms\qwindows.dll") { $env:QT_PLUGIN_PATH = $d; break }
+          }
+          "QT_PLUGIN_PATH=$env:QT_PLUGIN_PATH"
           # Report any DLL the UI test cannot find (diagnoses 0xc0000135).
           $deps = dumpbin /nologo /dependents build/tests/hcad_ui_tests.exe | Select-String '\.dll' | ForEach-Object { $_.ToString().Trim() }
           foreach ($d in $deps) {
