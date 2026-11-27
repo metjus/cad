@@ -110,7 +110,7 @@ point moves are history features (PoC: `ControlPointEditFeature`, tested).
 
 | Option | Delta updates | Per-user, no admin | Rollback | Notes |
 |---|---|---|---|---|
-| **Velopack** (MIT) | Yes (bsdiff-based deltas) | Yes (`%LOCALAPPDATA%`) | Keeps previous version; full package fallback | C++ SDK, CLI `vpk pack`, channels (stable/beta), static HTTPS feed, Authenticode signing integration |
+| **Velopack** (MIT) | Yes (binary delta packages) | Yes (`%LOCALAPPDATA%`) | Keeps previous version; full package fallback | C++ SDK, CLI `vpk pack`, channels (stable/beta), static HTTPS feed, Authenticode signing integration |
 | MSIX + App Installer | Block-level | Yes | OS-managed | Requires signing for every build, packaged-app restrictions, harder for portable/beta |
 | WiX MSI + WinSparkle | No (full MSI) | Usually admin | Manual | Mature, but users re-run installers |
 | Inno Setup + custom updater | DIY | Configurable | DIY | Most custom code to own |
