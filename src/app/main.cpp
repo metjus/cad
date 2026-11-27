@@ -11,11 +11,23 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QSysInfo>
+#include <cstring>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 int main(int argc, char** argv) {
   // Installer/uninstaller/update hooks must run before anything else; they may
   // exit the process. No-op in builds without Velopack.
   hcad::app::UpdateService::runStartupHooks(argc, argv);
+
+#ifdef _WIN32
+  // Automated runs (CI) must fail fast instead of waiting on an error dialog.
+  for (int i = 1; i < argc; ++i)
+    if (!std::strncmp(argv[i], "--smoke-test", 12) || !std::strncmp(argv[i], "--update-test", 13))
+      SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+#endif
 
   QApplication app(argc, argv);
   QApplication::setOrganizationName("HybridCAD");

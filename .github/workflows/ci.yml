@@ -116,7 +116,8 @@ jobs:
           7z x mesa.7z -omesa | Out-Null
           Copy-Item -Recurse stage/0.1.0 smoke-app
           Copy-Item mesa/x64/opengl32.dll, mesa/x64/libgallium_wgl.dll, mesa/x64/libglapi.dll smoke-app/ -ErrorAction SilentlyContinue
-          $p = Start-Process smoke-app/HybridCAD.exe -ArgumentList "--smoke-test", "$pwd/screenshots-win", "--mesh", "$pwd/tests/data/scan_sphere.obj" -PassThru -Wait
+          $p = Start-Process smoke-app/HybridCAD.exe -ArgumentList "--smoke-test", "$pwd/screenshots-win", "--mesh", "$pwd/tests/data/scan_sphere.obj" -PassThru
+          if (-not $p.WaitForExit(300000)) { Stop-Process -Id $p.Id -Force; throw "smoke test timed out" }
           "Smoke test exit code: $($p.ExitCode)"
           exit $p.ExitCode
       - name: Build, stage and pack 0.1.1-alpha (same code, next version)

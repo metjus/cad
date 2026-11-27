@@ -21,6 +21,15 @@ $failures = 0
 function Check($ok, $what) {
   if ($ok) { Write-Host "[PASS] $what" } else { Write-Host "[FAIL] $what"; $script:failures++ }
 }
+function Run-Timed($file, $argList, $timeoutSec) {
+  $p = Start-Process $file -ArgumentList $argList -PassThru
+  if (-not $p.WaitForExit($timeoutSec * 1000)) {
+    Write-Host "TIMEOUT after $timeoutSec s: $file $argList"
+    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    return -999
+  }
+  return $p.ExitCode
+}
 function Save-Logs {
   Copy-Item "$installRoot\*.log" $logs -ErrorAction SilentlyContinue
   Copy-Item "$dataDir\logs\*" $logs -ErrorAction SilentlyContinue
@@ -29,8 +38,8 @@ function Save-Logs {
 
 # 1. Install
 Write-Host "Installing $Setup"
-$p = Start-Process $Setup -ArgumentList '--silent' -PassThru -Wait
-Check ($p.ExitCode -eq 0) "Setup.exe --silent exit code $($p.ExitCode)"
+$rc = Run-Timed $Setup @('--silent') 300
+Check ($rc -eq 0) "Setup.exe --silent exit code $rc"
 Start-Sleep -Seconds 5
 Stop-Process -Name HybridCAD -Force -ErrorAction SilentlyContinue   # first-run launch, if any
 $exe = Join-Path $installRoot 'current\HybridCAD.exe'
@@ -44,8 +53,8 @@ Set-Content (Join-Path $dataDir 'sentinel.txt') 'user data must survive updates'
 Remove-Item $report -ErrorAction SilentlyContinue
 
 # 3. Check, download and apply from inside the installed app
-$p = Start-Process $exe -ArgumentList '--update-test', $Feed -PassThru -Wait
-Check ($p.ExitCode -eq 0) "installed app found, downloaded and started the update (exit $($p.ExitCode))"
+$rc = Run-Timed $exe @('--update-test', $Feed) 300
+Check ($rc -eq 0) "installed app found, downloaded and started the update (exit $rc)"
 
 # 4. Wait for the restarted, updated app to report
 for ($i = 0; $i -lt 180 -and -not (Test-Path $report); $i++) { Start-Sleep -Seconds 1 }
@@ -65,8 +74,8 @@ Check (Test-Path (Join-Path $dataDir 'sentinel.txt')) "user data file survived t
 # 5. Uninstall
 $update = Join-Path $installRoot 'Update.exe'
 if (Test-Path $update) {
-  $p = Start-Process $update -ArgumentList '--uninstall', '--silent' -PassThru -Wait
-  Write-Host "Update.exe --uninstall exit code $($p.ExitCode)"
+  $rc = Run-Timed $update @('--uninstall', '--silent') 300
+  Write-Host "Update.exe --uninstall exit code $rc"
   for ($i = 0; $i -lt 30 -and (Test-Path $exe); $i++) { Start-Sleep -Seconds 1 }
   Check (-not (Test-Path $exe)) "uninstall removed the program"
 } else {
