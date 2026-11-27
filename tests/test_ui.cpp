@@ -1,4 +1,4 @@
-// UI-layer tests that need no OpenGL: run with QT_QPA_PLATFORM=offscreen.
+// UI-layer tests that need no OpenGL and never show a window.
 #include "app/AppPaths.h"
 #include "app/CommandPalette.h"
 #include "app/CommandRegistry.h"
@@ -14,6 +14,11 @@
 #include <QStandardPaths>
 #include <QToolBar>
 #include <gtest/gtest.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <cstdlib>
+#endif
 
 using namespace hcad::app;
 using hcad::LengthUnit;
@@ -232,9 +237,17 @@ TEST(MainWindow, NavigationPreferenceApplies) {
 }
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+  // Never block a CI run on an error dialog (crash, abort, missing plugin).
+  SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+  _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
   ::testing::InitGoogleTest(&argc, argv);
   if (::testing::GTEST_FLAG(list_tests)) return RUN_ALL_TESTS(); // test discovery: no Qt start-up
-  qputenv("QT_QPA_PLATFORM", "offscreen");
+#ifndef _WIN32
+  qputenv("QT_QPA_PLATFORM", "offscreen"); // no X server needed
+#endif
+  // (On Windows the native platform plugin works without showing windows.)
   QStandardPaths::setTestModeEnabled(true);
   QApplication app(argc, argv);
   QApplication::setOrganizationName("HybridCAD");
