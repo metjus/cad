@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux (Ubuntu 24.04, OCCT 7.6, Qt 6.4)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            cmake ninja-build g++ \
+            libocct-modeling-algorithms-dev libocct-modeling-data-dev libocct-foundation-dev \
+            libocct-visualization-dev libocct-data-exchange-dev libocct-ocaf-dev \
+            qt6-base-dev libgl-dev libglu1-mesa-dev libgtest-dev libtbb-dev \
+            libfontconfig1-dev libfreetype-dev xvfb xauth libgl1-mesa-dri
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - name: Build
+        run: cmake --build build
+      - name: Test (unit, geometry, UI smoke under Xvfb)
+        run: ctest --test-dir build --output-on-failure
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-linux
+          path: build/screenshots/*.png
+          if-no-files-found: warn
+
+  windows:
+    name: Windows (MSVC, conda-forge OCCT + Qt)
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: hcad
+          create-args: >-
+            -c conda-forge
+            occt=7.9
+            qt6-main=6.8
+            gtest
+            cmake
+            ninja
+          cache-environment: true
+      - name: Put conda DLLs on PATH (moc, OCCT, Qt)
+        run: Add-Content $env:GITHUB_PATH "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library\bin"
+      - name: Configure
+        run: |
+          $prefix = "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="$prefix" `
+            -DHCAD_RUNTIME_DIRS="$prefix/bin" `
+            -DCMAKE_INSTALL_PREFIX="$pwd/dist/HybridCAD-PoC"
+      - name: Build
+        run: cmake --build build
+      - name: Unit and geometry tests
+        run: |
+          ctest --test-dir build --output-on-failure -E ui_smoke
+      - name: Package portable folder
+        run: |
+          cmake --install build
+          $prefix = "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
+          New-Item -ItemType Directory -Force dist/HybridCAD-PoC/platforms, dist/HybridCAD-PoC/styles | Out-Null
+          Copy-Item "$prefix/lib/qt6/plugins/platforms/qwindows.dll" dist/HybridCAD-PoC/platforms/ -ErrorAction SilentlyContinue
+          Copy-Item "$prefix/plugins/platforms/qwindows.dll" dist/HybridCAD-PoC/platforms/ -ErrorAction SilentlyContinue
+          Copy-Item tests/data/scan_sphere.obj, tests/data/cube_ascii.stl dist/HybridCAD-PoC/
+          Get-ChildItem dist/HybridCAD-PoC -Recurse | Measure-Object -Property Length -Sum | ForEach-Object { "Package size: {0:N1} MB" -f ($_.Sum / 1MB) }
+      - name: UI smoke test (software OpenGL via Mesa llvmpipe)
+        continue-on-error: true
+        run: |
+          # GitHub-hosted Windows runners have no GPU; the Microsoft basic
+          # driver only offers OpenGL 1.1, OCCT needs 3.x, so use Mesa.
+          $ver = "24.2.7"
+          Invoke-WebRequest "https://github.com/pal1000/mesa-dist-win/releases/download/$ver/mesa3d-$ver-release-msvc.7z" -OutFile mesa.7z
+          7z x mesa.7z -omesa | Out-Null
+          Copy-Item mesa/x64/opengl32.dll, mesa/x64/libgallium_wgl.dll, mesa/x64/libglapi.dll dist/HybridCAD-PoC/ -ErrorAction SilentlyContinue
+          $p = Start-Process dist/HybridCAD-PoC/hcad_poc.exe -ArgumentList "--smoke-test", "$pwd/screenshots-win", "--mesh", "$pwd/tests/data/scan_sphere.obj" -PassThru -Wait
+          Remove-Item dist/HybridCAD-PoC/opengl32.dll, dist/HybridCAD-PoC/libgallium_wgl.dll, dist/HybridCAD-PoC/libglapi.dll -ErrorAction SilentlyContinue
+          "Smoke test exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: HybridCAD-PoC-windows-x64
+          path: dist/HybridCAD-PoC
+      - name: Upload Windows screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-windows
+          path: screenshots-win/*.png
+          if-no-files-found: ignore
