@@ -36,8 +36,11 @@ jobs:
           if-no-files-found: warn
 
   windows:
-    name: Windows (MSVC, conda-forge OCCT + Qt)
+    name: Windows (MSVC, installer + in-app update round trip)
     runs-on: windows-2022
+    env:
+      VELOPACK_VERSION: "1.2.161"
+      PACK_ID: HybridCAD.App
     defaults:
       run:
         shell: pwsh
@@ -55,29 +58,39 @@ jobs:
             cmake
             ninja
           cache-environment: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
       - name: Put conda DLLs on PATH (moc, OCCT, Qt)
         run: Add-Content $env:GITHUB_PATH "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library\bin"
-      - name: Configure
+      - name: Get Velopack (C library + vpk packaging tool)
+        run: |
+          Invoke-WebRequest "https://github.com/velopack/velopack/releases/download/$env:VELOPACK_VERSION/velopack_libc_$env:VELOPACK_VERSION.zip" -OutFile velopack_libc.zip
+          Expand-Archive velopack_libc.zip -DestinationPath velopack
+          Get-ChildItem velopack -Recurse -Include *.h, *win_x64* | ForEach-Object { $_.FullName }
+          Add-Content $env:GITHUB_PATH "$pwd\velopack\lib"
+          dotnet tool install -g vpk --version $env:VELOPACK_VERSION
+          vpk -h | Select-Object -First 5
+      - name: Configure (0.1.0-alpha)
         run: |
           $prefix = "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_PREFIX_PATH="$prefix" `
             -DHCAD_RUNTIME_DIRS="$prefix/bin" `
-            -DCMAKE_INSTALL_PREFIX="$pwd/dist/HybridCAD-PoC"
+            -DHCAD_WITH_VELOPACK=ON -DVELOPACK_DIR="$pwd/velopack" `
+            -DHCAD_VERSION_FULL=0.1.0-alpha
       - name: Build
         run: cmake --build build
-      - name: Unit and geometry tests
+      - name: Unit, geometry and UI tests
+        run: ctest --test-dir build --output-on-failure -E ui_smoke
+      - name: Stage and pack 0.1.0-alpha
         run: |
-          ctest --test-dir build --output-on-failure -E ui_smoke
-      - name: Package portable folder
-        run: |
-          cmake --install build
-          $prefix = "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
-          New-Item -ItemType Directory -Force dist/HybridCAD-PoC/platforms, dist/HybridCAD-PoC/styles | Out-Null
-          Copy-Item "$prefix/lib/qt6/plugins/platforms/qwindows.dll" dist/HybridCAD-PoC/platforms/ -ErrorAction SilentlyContinue
-          Copy-Item "$prefix/plugins/platforms/qwindows.dll" dist/HybridCAD-PoC/platforms/ -ErrorAction SilentlyContinue
-          Copy-Item tests/data/scan_sphere.obj, tests/data/cube_ascii.stl dist/HybridCAD-PoC/
-          Get-ChildItem dist/HybridCAD-PoC -Recurse | Measure-Object -Property Length -Sum | ForEach-Object { "Package size: {0:N1} MB" -f ($_.Sum / 1MB) }
+          ./packaging/windows/stage.ps1 -BuildDir build -StageDir stage/0.1.0 -Prefix "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
+          vpk pack --packId $env:PACK_ID --packVersion 0.1.0-alpha --packDir stage/0.1.0 --mainExe HybridCAD.exe `
+            --packTitle HybridCAD --packAuthors "HybridCAD" --channel stable --outputDir releases
+          New-Item -ItemType Directory -Force installer-0.1.0 | Out-Null
+          Copy-Item releases/*Setup.exe installer-0.1.0/
+          Get-ChildItem releases | Format-Table Name, Length
       - name: UI smoke test (software OpenGL via Mesa llvmpipe)
         continue-on-error: true
         run: |
@@ -86,16 +99,38 @@ jobs:
           $ver = "24.2.7"
           Invoke-WebRequest "https://github.com/pal1000/mesa-dist-win/releases/download/$ver/mesa3d-$ver-release-msvc.7z" -OutFile mesa.7z
           7z x mesa.7z -omesa | Out-Null
-          Copy-Item mesa/x64/opengl32.dll, mesa/x64/libgallium_wgl.dll, mesa/x64/libglapi.dll dist/HybridCAD-PoC/ -ErrorAction SilentlyContinue
-          $p = Start-Process dist/HybridCAD-PoC/hcad_poc.exe -ArgumentList "--smoke-test", "$pwd/screenshots-win", "--mesh", "$pwd/tests/data/scan_sphere.obj" -PassThru -Wait
-          Remove-Item dist/HybridCAD-PoC/opengl32.dll, dist/HybridCAD-PoC/libgallium_wgl.dll, dist/HybridCAD-PoC/libglapi.dll -ErrorAction SilentlyContinue
+          Copy-Item -Recurse stage/0.1.0 smoke-app
+          Copy-Item mesa/x64/opengl32.dll, mesa/x64/libgallium_wgl.dll, mesa/x64/libglapi.dll smoke-app/ -ErrorAction SilentlyContinue
+          $p = Start-Process smoke-app/HybridCAD.exe -ArgumentList "--smoke-test", "$pwd/screenshots-win", "--mesh", "$pwd/tests/data/scan_sphere.obj" -PassThru -Wait
           "Smoke test exit code: $($p.ExitCode)"
           exit $p.ExitCode
-      - name: Upload portable build
+      - name: Build, stage and pack 0.1.1-alpha (same code, next version)
+        run: |
+          cmake build -DHCAD_VERSION_FULL=0.1.1-alpha
+          cmake --build build
+          ./packaging/windows/stage.ps1 -BuildDir build -StageDir stage/0.1.1 -Prefix "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
+          vpk pack --packId $env:PACK_ID --packVersion 0.1.1-alpha --packDir stage/0.1.1 --mainExe HybridCAD.exe `
+            --packTitle HybridCAD --packAuthors "HybridCAD" --channel stable --outputDir releases
+          Get-ChildItem releases | Format-Table Name, Length
+          if (-not (Get-ChildItem releases/*0.1.1-alpha-delta.nupkg)) { throw "no delta package was produced" }
+      - name: Install 0.1.0-alpha, update in-app to 0.1.1-alpha, uninstall
+        run: ./packaging/windows/update-roundtrip.ps1 -Setup (Get-ChildItem installer-0.1.0/*Setup.exe).FullName -Feed "$pwd/releases" -PackId $env:PACK_ID -Expected 0.1.1-alpha
+      - name: Upload installer and release feed
         uses: actions/upload-artifact@v4
         with:
-          name: HybridCAD-PoC-windows-x64
-          path: dist/HybridCAD-PoC
+          name: HybridCAD-0.1.1-alpha-windows-x64-installer
+          path: |
+            releases/*Setup.exe
+            releases/*.nupkg
+            releases/releases.*.json
+            releases/RELEASES*
+      - name: Upload update test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-test-logs
+          path: update-test-logs
+          if-no-files-found: ignore
       - name: Upload Windows screenshots
         if: always()
         uses: actions/upload-artifact@v4

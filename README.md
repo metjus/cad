@@ -37,7 +37,7 @@ sudo apt install cmake ninja-build g++ libocct-*-dev qt6-base-dev libgtest-dev \
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 ctest --test-dir build --output-on-failure      # includes UI smoke test via xvfb-run
-./build/src/hcad_poc
+./build/src/HybridCAD
 ```
 
 ### Windows (MSVC 2022)

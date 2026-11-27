@@ -1,4 +1,12 @@
 #include "app/MainWindow.h"
+#include "app/AppPaths.h"
+#include "app/CommandPalette.h"
+#include "app/Icons.h"
+#include "app/Logging.h"
+#include "app/PreferencesDialog.h"
+#include "app/UpdateDialog.h"
+#include "app/Version.h"
+#include "app/WelcomeDialog.h"
 #include "document/Features.h"
 #include "kernel/ShapeInfo.h"
 
@@ -8,6 +16,8 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QCheckBox>
+#include <QDesktopServices>
+#include <QDialogButtonBox>
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -30,6 +40,8 @@
 #include <QTableWidget>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
+#include <QUrl>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -65,21 +77,30 @@ std::string owningFeature(const std::string& ref) {
 }
 } // namespace
 
-MainWindow::MainWindow() {
-  setWindowTitle("HybridCAD — Phase 0 proof of concept");
+MainWindow::MainWindow(const Preferences& prefs) : prefs_(prefs) {
+  setWindowTitle(QString("HybridCAD %1").arg(HCAD_VERSION));
+  setWindowIcon(Icons::get("app"));
   resize(1440, 900);
+  unit_ = prefs_.units;
+  commands_ = new CommandRegistry(this);
+  updates_ = UpdateService::create(this);
   buildUi();
+  registerCommands();
   buildMenus();
-  doc::buildDemoDocument(doc_);
+  buildToolbars();
+  palette_ = new CommandPalette(commands_, this);
+  applyPreferences(prefs_);
 
   connect(view_, &OcctViewWidget::viewReady, this, [this] {
     recomputeAndRefresh();
+    commands_->refreshStates();
     QTimer::singleShot(0, view_, &OcctViewWidget::fitAll);
   });
   connect(view_, &OcctViewWidget::selectionChanged, this, &MainWindow::onViewportSelection);
   connect(view_, &OcctViewWidget::cursorModel, this, [this](double x, double y, double z) {
     coordLabel_->setText(QString("X %1  Y %2  Z %3").arg(fmtLength(x), fmtLength(y), fmtLength(z)));
   });
+  connect(updates_.get(), &UpdateService::stateChanged, this, &MainWindow::syncUpdateIndicator);
 
   QSettings s;
   restoreGeometry(s.value("ui/geometry").toByteArray());
@@ -89,6 +110,74 @@ MainWindow::MainWindow() {
     st.setValue("ui/geometry", saveGeometry());
     st.setValue("ui/state", saveState());
   });
+
+  if (UpdateService::velopackEnabled()) {
+    updates_->configure(prefs_.updateFeed.isEmpty() ? QString(HCAD_DEFAULT_UPDATE_FEED) : prefs_.updateFeed, prefs_.updateChannel);
+    if (prefs_.checkUpdatesOnStartup && updates_->state() == UpdateService::State::Idle)
+      QTimer::singleShot(4000, updates_.get(), &UpdateService::check);
+  }
+  syncUpdateIndicator();
+  qInfo().noquote() << "Main window ready; data dir" << AppPaths::dataDir();
+}
+
+MainWindow::~MainWindow() = default;
+
+void MainWindow::applyPreferences(const Preferences& p) {
+  prefs_ = p;
+  view_->setNavigationStyle(p.navigation);
+  if (navHint_) navHint_->setText(OcctViewWidget::navigationHint(p.navigation) + " · F3 commands");
+  setUnits(p.units);
+}
+
+void MainWindow::setUnits(LengthUnit u) {
+  unit_ = u;
+  unitLabel_->setText(u == LengthUnit::Inch ? "in" : "mm");
+  refreshParameterTable();
+  refreshProperties();
+  commands_->refreshStates();
+}
+
+void MainWindow::newEmptyProject(bool confirm) {
+  if (confirm && !doc_.features().empty()) {
+    const auto r = QMessageBox::question(this, "New empty project",
+      "Close the current project and start an empty one?\n\nThis alpha cannot save projects yet, so unsaved changes are lost.");
+    if (r != QMessageBox::Yes) return;
+  }
+  doc_ = doc::Document{};
+  currentFeature_.clear();
+  selection_.clear();
+  recomputeAndRefresh();
+  statusBar()->showMessage("Empty project. Open the example project with Ctrl+E, or import a mesh reference with Ctrl+I.", 8000);
+  qInfo() << "New empty project";
+}
+
+void MainWindow::openExampleProject() {
+  doc_ = doc::Document{};
+  doc::buildDemoDocument(doc_);
+  currentFeature_.clear();
+  selection_.clear();
+  recomputeAndRefresh();
+  view_->fitAll();
+  statusBar()->showMessage("Example project opened. Try editing Width in the Parameters table.", 8000);
+  qInfo() << "Opened example project";
+}
+
+void MainWindow::maybeShowWelcome() {
+  if (prefs_.showWelcome || !prefs_.welcomeCompleted) showWelcome();
+  else openExampleProject();
+}
+
+void MainWindow::showWelcome() {
+  WelcomeDialog dlg(prefs_, this);
+  if (dlg.exec() != QDialog::Accepted) {
+    if (doc_.features().empty()) openExampleProject();
+    return;
+  }
+  Preferences p = dlg.result(prefs_);
+  p.save();
+  applyPreferences(p);
+  if (dlg.start() == WelcomeDialog::Start::Example) openExampleProject();
+  else newEmptyProject(false);
 }
 
 QString MainWindow::fmtLength(double mm) const {
@@ -100,37 +189,6 @@ void MainWindow::buildUi() {
   setCentralWidget(view_);
   scene_ = std::make_unique<SceneSync>(view_);
 
-  // ---- Left toolbar: selection modes + view
-  auto* tb = new QToolBar("Tools", this);
-  tb->setObjectName("toolsBar");
-  tb->setOrientation(Qt::Vertical);
-  tb->setMovable(false);
-  tb->setToolButtonStyle(Qt::ToolButtonTextOnly);
-  addToolBar(Qt::LeftToolBarArea, tb);
-  auto* group = new QActionGroup(this);
-  const struct { SelectionMode m; const char* label; const char* key; const char* tip; } modes[] = {
-    {SelectionMode::Object, "Object", "1", "Select whole bodies and surfaces"},
-    {SelectionMode::Vertex, "Vertex", "2", "Select B-Rep vertices"},
-    {SelectionMode::Edge, "Edge", "3", "Select B-Rep edges"},
-    {SelectionMode::Face, "Face", "4", "Select B-Rep faces"},
-  };
-  for (const auto& md : modes) {
-    auto* a = tb->addAction(md.label);
-    a->setCheckable(true);
-    a->setShortcut(QKeySequence(md.key));
-    a->setToolTip(QString("<b>%1 selection</b> (%2)<br>%3").arg(md.label, md.key, md.tip));
-    group->addAction(a);
-    const SelectionMode m = md.m;
-    connect(a, &QAction::triggered, this, [this, m] { setSelectionMode(m); });
-    modeActions_ << a;
-  }
-  modeActions_.front()->setChecked(true);
-  tb->addSeparator();
-  auto* fit = tb->addAction("Fit");
-  fit->setShortcut(QKeySequence(Qt::Key_Home));
-  fit->setToolTip("<b>Fit all</b> (Home)<br>Frame all visible geometry");
-  connect(fit, &QAction::triggered, view_, &OcctViewWidget::fitAll);
-
   // ---- Left dock: project browser + feature history
   auto* leftTabs = new QTabWidget;
   project_ = new QTreeWidget;
@@ -139,10 +197,10 @@ void MainWindow::buildUi() {
   history_ = new QListWidget;
   history_->setContextMenuPolicy(Qt::CustomContextMenu);
   leftTabs->addTab(history_, "History");
-  auto* leftDock = new QDockWidget("Browser", this);
-  leftDock->setObjectName("browserDock");
-  leftDock->setWidget(leftTabs);
-  addDockWidget(Qt::LeftDockWidgetArea, leftDock);
+  browserDock_ = new QDockWidget("Browser", this);
+  browserDock_->setObjectName("browserDock");
+  browserDock_->setWidget(leftTabs);
+  addDockWidget(Qt::LeftDockWidgetArea, browserDock_);
   leftTabs->setCurrentIndex(1);
 
   connect(history_, &QListWidget::currentRowChanged, this, [this](int row) {
@@ -211,11 +269,11 @@ void MainWindow::buildUi() {
   auto* scroll = new QScrollArea;
   scroll->setWidget(props);
   scroll->setWidgetResizable(true);
-  auto* rightDock = new QDockWidget("Properties", this);
-  rightDock->setObjectName("propertiesDock");
-  rightDock->setWidget(scroll);
-  rightDock->setMinimumWidth(340);
-  addDockWidget(Qt::RightDockWidgetArea, rightDock);
+  propsDock_ = new QDockWidget("Properties", this);
+  propsDock_->setObjectName("propertiesDock");
+  propsDock_->setWidget(scroll);
+  propsDock_->setMinimumWidth(340);
+  addDockWidget(Qt::RightDockWidgetArea, propsDock_);
 
   // ---- Status bar
   modeLabel_ = new QLabel;
@@ -223,50 +281,236 @@ void MainWindow::buildUi() {
   coordLabel_ = new QLabel;
   unitLabel_ = new QLabel("mm");
   recomputeLabel_ = new QLabel;
-  auto* keys = new QLabel("MMB orbit · Shift+MMB pan · Wheel zoom · 1-4 selection mode · Home fit");
-  keys->setObjectName("hint");
+  navHint_ = new QLabel;
+  navHint_->setObjectName("hint");
+  updateBadge_ = new QToolButton;
+  updateBadge_->setIcon(Icons::get("update"));
+  updateBadge_->setAutoRaise(true);
+  updateBadge_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  updateBadge_->hide();
+  connect(updateBadge_, &QToolButton::clicked, this, &MainWindow::showUpdateDialog);
   statusBar()->addWidget(modeLabel_);
   statusBar()->addWidget(selLabel_, 1);
-  statusBar()->addPermanentWidget(keys);
+  statusBar()->addPermanentWidget(updateBadge_);
+  statusBar()->addPermanentWidget(navHint_);
   statusBar()->addPermanentWidget(coordLabel_);
   statusBar()->addPermanentWidget(unitLabel_);
   statusBar()->addPermanentWidget(recomputeLabel_);
   modeLabel_->setText("Mode: Object");
 }
 
+void MainWindow::registerCommands() {
+  auto& c = *commands_;
+  // ---- File
+  c.add({"file.new", "New Empty Project", "Close the current project and start with an empty one", "File",
+         QKeySequence::New, "new", false, [this] { newEmptyProject(); }});
+  c.add({"file.openExample", "Open Example Project", "Open the parametric example: block, chamfer, fillet and a NURBS surface", "File",
+         QKeySequence("Ctrl+E"), "example", false, [this] { openExampleProject(); }});
+  c.add({"file.importMesh", "Import Mesh Reference…", "Import an STL or OBJ scan as reference data (kept separate from CAD geometry)", "File",
+         QKeySequence("Ctrl+I"), "import", false, [this] { importMeshDialog(); }});
+  c.add({"file.preferences", "Preferences…", "Navigation style, units, updates and data locations", "File",
+         QKeySequence("Ctrl+,"), "settings", false, [this] { showPreferences(); }});
+  c.add({"file.quit", "Quit", "Close HybridCAD", "File", QKeySequence::Quit, {}, false, [] { QApplication::quit(); }});
+
+  // ---- Selection modes
+  const struct { SelectionMode m; const char* id; const char* text; const char* key; const char* icon; const char* desc; } modes[] = {
+    {SelectionMode::Object, "select.object", "Select Objects", "1", "select-object", "Pick whole bodies, surfaces and mesh references"},
+    {SelectionMode::Vertex, "select.vertex", "Select Vertices", "2", "select-vertex", "Pick B-Rep vertices"},
+    {SelectionMode::Edge, "select.edge", "Select Edges", "3", "select-edge", "Pick B-Rep edges"},
+    {SelectionMode::Face, "select.face", "Select Faces", "4", "select-face", "Pick B-Rep faces"},
+  };
+  for (const auto& md : modes) {
+    const SelectionMode m = md.m;
+    CommandDef d{md.id, md.text, md.desc, "Selection", QKeySequence(md.key), md.icon, true, [this, m] { setSelectionMode(m); }};
+    d.checked = [this, m] { return view_->selectionMode() == m; };
+    c.add(std::move(d));
+  }
+
+  // ---- View
+  c.add({"view.fitAll", "Fit All", "Frame all visible geometry", "View", QKeySequence(Qt::Key_Home), "fit", false, [this] { view_->fitAll(); }});
+  const struct { const char* id; const char* text; const char* key; const char* icon; V3d_TypeOfOrientation o; } views[] = {
+    {"view.iso", "Isometric View", "0", "view-iso", V3d_XposYnegZpos},
+    {"view.top", "Top View", "7", "view-top", V3d_Zpos},
+    {"view.bottom", "Bottom View", "Ctrl+7", "", V3d_Zneg},
+    {"view.front", "Front View", "8", "view-front", V3d_Yneg},
+    {"view.back", "Back View", "Ctrl+8", "", V3d_Ypos},
+    {"view.right", "Right View", "9", "view-right", V3d_Xpos},
+    {"view.left", "Left View", "Ctrl+9", "", V3d_Xneg},
+  };
+  for (const auto& vw : views) {
+    const V3d_TypeOfOrientation o = vw.o;
+    c.add({vw.id, vw.text, QString("Look at the model from the %1 and fit it to the window").arg(QString(vw.text).section(' ', 0, 0).toLower()),
+           "View", QKeySequence(vw.key), vw.icon, false, [this, o] { view_->setStandardView(o); }});
+  }
+  CommandDef persp{"view.perspective", "Perspective Projection", "Switch between perspective and orthographic projection", "View",
+                   QKeySequence("5"), "perspective", true, [this] { view_->setPerspective(!view_->perspective()); }};
+  persp.checked = [this] { return view_->perspective(); };
+  c.add(std::move(persp));
+  CommandDef grid{"view.grid", "Show Grid", "Show the 10 mm construction grid on the XY plane", "View",
+                  QKeySequence("Shift+G"), "grid", true, [this] { view_->setGridVisible(!view_->gridVisible()); }};
+  grid.checked = [this] { return view_->gridVisible(); };
+  c.add(std::move(grid));
+  CommandDef axes{"view.axes", "Show Axes", "Show the X/Y/Z axis indicator in the lower-left corner", "View",
+                  QKeySequence("Shift+A"), "axes", true, [this] { view_->setAxesVisible(!view_->axesVisible()); }};
+  axes.checked = [this] { return view_->axesVisible(); };
+  c.add(std::move(axes));
+  CommandDef cube{"view.viewCube", "Show View Cube", "Show the orientation cube; click its faces, edges or corners to change the view", "View",
+                  QKeySequence("Shift+C"), "cube", true, [this] { view_->setViewCubeVisible(!view_->viewCubeVisible()); }};
+  cube.checked = [this] { return view_->viewCubeVisible(); };
+  c.add(std::move(cube));
+  CommandDef mm{"view.unitsMm", "Display Millimetres", "Show lengths in millimetres", "View", {}, {}, true, [this] { setUnits(LengthUnit::Millimetre); }};
+  mm.checked = [this] { return unit_ == LengthUnit::Millimetre; };
+  c.add(std::move(mm));
+  CommandDef in{"view.unitsIn", "Display Inches", "Show lengths in inches", "View", {}, {}, true, [this] { setUnits(LengthUnit::Inch); }};
+  in.checked = [this] { return unit_ == LengthUnit::Inch; };
+  c.add(std::move(in));
+  CommandDef pb{"view.browserPanel", "Browser Panel", "Show or hide the project browser and feature history", "Window",
+                QKeySequence("Ctrl+1"), "history", true, [this] { browserDock_->setVisible(!browserDock_->isVisible()); }};
+  pb.checked = [this] { return browserDock_->isVisible(); };
+  c.add(std::move(pb));
+  CommandDef pp{"view.propertiesPanel", "Properties Panel", "Show or hide feature properties and the parameter table", "Window",
+                QKeySequence("Ctrl+2"), "parameters", true, [this] { propsDock_->setVisible(!propsDock_->isVisible()); }};
+  pp.checked = [this] { return propsDock_->isVisible(); };
+  c.add(std::move(pp));
+
+  // ---- Help
+  c.add({"help.commandSearch", "Search Commands…", "Find and run any command by typing part of its name", "Help",
+         QKeySequence(Qt::Key_F3), "search", false, [this] { palette_->popup(); }});
+  c.action("help.commandSearch")->setShortcuts({QKeySequence(Qt::Key_F3), QKeySequence("Ctrl+K")});
+  c.add({"help.welcome", "Welcome Screen", "Show the welcome screen: navigation style, units and first steps", "Help",
+         {}, "welcome", false, [this] { showWelcome(); }});
+  c.add({"help.shortcuts", "Keyboard Shortcuts", "List every command with its shortcut", "Help",
+         QKeySequence("Ctrl+F1"), "keyboard", false, [this] { showShortcuts(); }});
+  c.add({"help.checkUpdates", "Check for Updates…", "Check for a newer HybridCAD version and install it in place", "Help",
+         {}, "update", false, [this] { showUpdateDialog(); updates_->check(); }});
+  c.add({"help.openLogs", "Open Log Folder", "Open the folder with HybridCAD's log files (useful for bug reports)", "Help",
+         {}, "logs", false, [] { QDesktopServices::openUrl(QUrl::fromLocalFile(AppPaths::logsDir())); }});
+  c.add({"help.about", "About HybridCAD", "Version, geometry kernel and licence information", "Help", {}, "info", false, [this] {
+    QMessageBox::about(this, "About HybridCAD",
+      QString("<b>HybridCAD %1</b><br>Early alpha.<br><br>Geometry kernel: Open CASCADE Technology %2<br>UI: Qt %3<br><br>"
+              "Third-party licences are listed in docs/LICENCES.md.").arg(HCAD_VERSION, OCC_VERSION_COMPLETE, QT_VERSION_STR));
+  }});
+}
+
 void MainWindow::buildMenus() {
-  auto* file = menuBar()->addMenu("&File");
-  auto* imp = file->addAction("Import Mesh Reference (STL, OBJ)...", this, &MainWindow::importMeshDialog);
-  imp->setShortcut(QKeySequence("Ctrl+I"));
-  file->addSeparator();
-  file->addAction("Quit", QKeySequence::Quit, qApp, &QApplication::quit);
-
+  auto& c = *commands_;
+  auto addAll = [&c](QMenu* m, std::initializer_list<const char*> ids) {
+    for (const char* id : ids) {
+      if (!*id) m->addSeparator();
+      else m->addAction(c.action(id));
+    }
+  };
+  addAll(menuBar()->addMenu("&File"), {"file.new", "file.openExample", "", "file.importMesh", "", "file.preferences", "", "file.quit"});
+  auto* select = menuBar()->addMenu("&Select");
+  auto* modeGroup = new QActionGroup(this);
+  for (const char* id : {"select.object", "select.vertex", "select.edge", "select.face"}) {
+    modeGroup->addAction(c.action(id));
+    select->addAction(c.action(id));
+  }
   auto* view = menuBar()->addMenu("&View");
-  view->addAction("Fit All", QKeySequence(Qt::Key_Home), view_, &OcctViewWidget::fitAll);
-  view->addAction("Isometric", QKeySequence(Qt::Key_0), this, [this] { view_->setStandardView(V3d_XposYnegZpos); });
-  view->addAction("Top", QKeySequence(Qt::Key_7), this, [this] { view_->setStandardView(V3d_Zpos); });
-  view->addAction("Front", QKeySequence(Qt::Key_8), this, [this] { view_->setStandardView(V3d_Yneg); });
-  view->addAction("Right", QKeySequence(Qt::Key_9), this, [this] { view_->setStandardView(V3d_Xpos); });
-  view->addSeparator();
+  addAll(view, {"view.fitAll", "", "view.iso", "view.top", "view.bottom", "view.front", "view.back", "view.right", "view.left", "",
+                "view.perspective", "view.grid", "view.axes", "view.viewCube"});
   auto* units = view->addMenu("Display Units");
-  auto* ug = new QActionGroup(this);
-  auto* mm = units->addAction("Millimetres");
-  auto* in = units->addAction("Inches");
-  for (auto* a : {mm, in}) { a->setCheckable(true); ug->addAction(a); }
-  mm->setChecked(true);
-  connect(mm, &QAction::triggered, this, [this] { unit_ = LengthUnit::Millimetre; unitLabel_->setText("mm"); refreshParameterTable(); refreshProperties(); });
-  connect(in, &QAction::triggered, this, [this] { unit_ = LengthUnit::Inch; unitLabel_->setText("in"); refreshParameterTable(); refreshProperties(); });
+  auto* unitGroup = new QActionGroup(this);
+  for (const char* id : {"view.unitsMm", "view.unitsIn"}) {
+    unitGroup->addAction(c.action(id));
+    units->addAction(c.action(id));
+  }
+  addAll(menuBar()->addMenu("&Window"), {"view.browserPanel", "view.propertiesPanel"});
+  addAll(menuBar()->addMenu("&Help"), {"help.commandSearch", "help.shortcuts", "help.welcome", "", "help.checkUpdates", "help.openLogs", "",
+                                       "help.about"});
+  // Keep check marks in sync when docks are closed with their own buttons.
+  for (auto* d : {browserDock_, propsDock_})
+    connect(d, &QDockWidget::visibilityChanged, commands_, &CommandRegistry::refreshStates);
+}
 
-  auto* help = menuBar()->addMenu("&Help");
-  help->addAction("About", this, [this] {
-    QMessageBox::about(this, "About", "HybridCAD — Phase 0 technical proof of concept.\n\n"
-                                      "Geometry: Open CASCADE Technology " OCC_VERSION_COMPLETE "\nUI: Qt " QT_VERSION_STR);
-  });
+void MainWindow::buildToolbars() {
+  auto& c = *commands_;
+  auto* tb = new QToolBar("Selection and View", this);
+  tb->setObjectName("toolsBar");
+  tb->setOrientation(Qt::Vertical);
+  tb->setMovable(false);
+  tb->setIconSize(QSize(24, 24));
+  tb->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  addToolBar(Qt::LeftToolBarArea, tb);
+  for (const char* id : {"select.object", "select.vertex", "select.edge", "select.face", "", "view.fitAll", "view.iso", "view.top",
+                         "view.front", "view.right", "", "view.grid", "view.perspective", "", "help.commandSearch"}) {
+    if (!*id) tb->addSeparator();
+    else tb->addAction(c.action(id));
+  }
+}
+
+void MainWindow::showShortcuts() {
+  QDialog dlg(this);
+  dlg.setWindowTitle("Keyboard Shortcuts");
+  dlg.resize(640, 560);
+  auto* v = new QVBoxLayout(&dlg);
+  auto* table = new QTableWidget(0, 3);
+  table->setHorizontalHeaderLabels({"Command", "Shortcut", "Category"});
+  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+  table->verticalHeader()->hide();
+  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  for (const auto& d : commands_->all()) {
+    QStringList keys;
+    for (const auto& k : commands_->action(d.id)->shortcuts()) keys << k.toString(QKeySequence::NativeText);
+    const int r = table->rowCount();
+    table->insertRow(r);
+    auto* name = new QTableWidgetItem(commands_->action(d.id)->icon(), d.text);
+    name->setToolTip(d.description);
+    table->setItem(r, 0, name);
+    table->setItem(r, 1, new QTableWidgetItem(keys.join("  or  ")));
+    table->setItem(r, 2, new QTableWidgetItem(d.category));
+  }
+  table->resizeColumnsToContents();
+  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+  v->addWidget(table);
+  auto* nav = new QLabel("Viewport: " + OcctViewWidget::navigationHint(prefs_.navigation) + ". Alt + left mouse emulates the middle button.");
+  nav->setWordWrap(true);
+  nav->setObjectName("hint");
+  v->addWidget(nav);
+  auto* bb = new QDialogButtonBox(QDialogButtonBox::Close);
+  connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+  v->addWidget(bb);
+  dlg.exec();
+}
+
+void MainWindow::showPreferences() {
+  PreferencesDialog dlg(prefs_, this);
+  if (dlg.exec() != QDialog::Accepted) return;
+  Preferences p = dlg.result(prefs_);
+  const bool feedChanged = p.updateFeed != prefs_.updateFeed || p.updateChannel != prefs_.updateChannel;
+  p.save();
+  applyPreferences(p);
+  if (feedChanged && UpdateService::velopackEnabled())
+    updates_->configure(p.updateFeed.isEmpty() ? QString(HCAD_DEFAULT_UPDATE_FEED) : p.updateFeed, p.updateChannel);
+}
+
+void MainWindow::showUpdateDialog() {
+  auto* dlg = findChild<UpdateDialog*>();
+  if (!dlg) {
+    dlg = new UpdateDialog(updates_.get(), this);
+    connect(dlg, &UpdateDialog::restartRequested, this, &MainWindow::restartToUpdate);
+  }
+  dlg->show();
+  dlg->raise();
+}
+
+void MainWindow::restartToUpdate() {
+  qInfo() << "Restarting to apply update" << updates_->availableVersion();
+  if (updates_->applyAndRestart(true)) QApplication::quit();
+}
+
+void MainWindow::syncUpdateIndicator() {
+  using S = UpdateService::State;
+  const S s = updates_->state();
+  if (s == S::Available) updateBadge_->setText(QString("Update %1 available").arg(updates_->availableVersion()));
+  else if (s == S::ReadyToRestart) updateBadge_->setText("Restart to update");
+  updateBadge_->setVisible(s == S::Available || s == S::ReadyToRestart);
 }
 
 void MainWindow::setSelectionMode(SelectionMode m) {
   view_->setSelectionMode(m);
-  modeActions_[static_cast<int>(m)]->setChecked(true);
+  commands_->refreshStates();
   modeLabel_->setText(QString("Mode: %1").arg(toString(m)));
 }
 

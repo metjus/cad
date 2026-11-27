@@ -44,7 +44,7 @@ feature propagates and clears when fixed — partially covered now).
 
 ## 4. UI smoke test
 
-`hcad_poc --smoke-test <dir> --mesh <file>` runs a script inside the real
+`HybridCAD --smoke-test <dir> --mesh <file>` runs a script inside the real
 application:
 
 1. Demo history computes.

@@ -8,6 +8,7 @@
 add_library(hcad_core STATIC
   core/Expression.cpp
   core/Units.cpp
+  core/FuzzyMatch.cpp
 )
 target_include_directories(hcad_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -41,35 +42,70 @@ target_link_libraries(hcad_document PUBLIC hcad_kernel)
 if(HCAD_BUILD_APP)
   find_package(Qt6 REQUIRED COMPONENTS Widgets)
   set(CMAKE_AUTOMOC ON)
-  qt_add_executable(hcad_poc WIN32
-    app/main.cpp
-    app/MainWindow.cpp
-    app/MainWindow.h
-    app/OcctViewWidget.cpp
-    app/OcctViewWidget.h
-    app/SceneSync.cpp
-    app/SceneSync.h
-    app/Theme.cpp
-    app/Theme.h
-    app/SmokeTest.cpp
-    app/SmokeTest.h
+  configure_file(app/Version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/app/Version.h @ONLY)
+
+  # UI library: everything except main(), so UI tests can link it.
+  add_library(hcad_ui STATIC
+    app/AppPaths.cpp app/AppPaths.h
+    app/CommandPalette.cpp app/CommandPalette.h
+    app/CommandRegistry.cpp app/CommandRegistry.h
+    app/Icons.cpp app/Icons.h
+    app/Logging.cpp app/Logging.h
+    app/MainWindow.cpp app/MainWindow.h
+    app/OcctViewWidget.cpp app/OcctViewWidget.h
+    app/Preferences.cpp app/Preferences.h
+    app/PreferencesDialog.cpp app/PreferencesDialog.h
+    app/SceneSync.cpp app/SceneSync.h
+    app/SmokeTest.cpp app/SmokeTest.h
+    app/Theme.cpp app/Theme.h
+    app/UpdateDialog.cpp app/UpdateDialog.h
+    app/UpdateService.cpp app/UpdateService.h
+    app/UpdateTest.cpp app/UpdateTest.h
+    app/WelcomeDialog.cpp app/WelcomeDialog.h
   )
-  target_link_libraries(hcad_poc PRIVATE hcad_document Qt6::Widgets
-    TKService TKV3d TKOpenGl)
+  target_include_directories(hcad_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/generated)
+  target_link_libraries(hcad_ui PUBLIC hcad_document Qt6::Widgets TKService TKV3d TKOpenGl)
   if(UNIX AND NOT APPLE)
     find_package(X11 REQUIRED)
-    target_link_libraries(hcad_poc PRIVATE X11::X11)
+    target_link_libraries(hcad_ui PUBLIC X11::X11)
   endif()
+
+  if(HCAD_WITH_VELOPACK)
+    find_path(VELOPACK_INCLUDE_DIR Velopack.h PATHS ${VELOPACK_DIR}/include NO_DEFAULT_PATH REQUIRED)
+    # Prefer the DLL import library (the static Rust library needs a long
+    # list of extra system libraries).
+    file(GLOB _vpk_implibs "${VELOPACK_DIR}/lib/*win*x64*.dll.lib" "${VELOPACK_DIR}/lib/*x64*.dll.lib")
+    file(GLOB _vpk_dlls "${VELOPACK_DIR}/lib/*win*x64*.dll" "${VELOPACK_DIR}/lib/*x64*.dll")
+    if(NOT _vpk_implibs OR NOT _vpk_dlls)
+      message(FATAL_ERROR "Velopack x64 import library/DLL not found under ${VELOPACK_DIR}/lib")
+    endif()
+    list(GET _vpk_implibs 0 VELOPACK_IMPLIB)
+    list(GET _vpk_dlls 0 VELOPACK_DLL)
+    message(STATUS "Velopack: ${VELOPACK_IMPLIB} / ${VELOPACK_DLL}")
+    target_include_directories(hcad_ui PRIVATE ${VELOPACK_INCLUDE_DIR})
+    target_compile_definitions(hcad_ui PRIVATE HCAD_WITH_VELOPACK)
+    target_link_libraries(hcad_ui PUBLIC ${VELOPACK_IMPLIB})
+  endif()
+
+  qt_add_executable(hcad_app WIN32 app/main.cpp)
+  set_target_properties(hcad_app PROPERTIES OUTPUT_NAME HybridCAD)
+  target_link_libraries(hcad_app PRIVATE hcad_ui)
+
   if(WIN32)
     # Collect the DLLs the executable needs (OCCT, Qt, TBB, FreeType, ...)
     # from the build environment, excluding Windows system libraries.
-    install(TARGETS hcad_poc
+    set(_dirs ${HCAD_RUNTIME_DIRS})
+    if(HCAD_WITH_VELOPACK)
+      get_filename_component(_vpkdir ${VELOPACK_DLL} DIRECTORY)
+      list(APPEND _dirs ${_vpkdir})
+    endif()
+    install(TARGETS hcad_app
       RUNTIME_DEPENDENCIES
         PRE_EXCLUDE_REGEXES "api-ms-.*" "ext-ms-.*"
         POST_EXCLUDE_REGEXES ".*[Ss]ystem32/.*\\.dll"
-        DIRECTORIES ${HCAD_RUNTIME_DIRS}
+        DIRECTORIES ${_dirs}
       RUNTIME DESTINATION .)
   else()
-    install(TARGETS hcad_poc RUNTIME DESTINATION bin)
+    install(TARGETS hcad_app RUNTIME DESTINATION bin)
   endif()
 endif()
