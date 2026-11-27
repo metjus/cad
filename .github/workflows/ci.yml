@@ -82,7 +82,16 @@ jobs:
       - name: Build
         run: cmake --build build
       - name: Unit, geometry and UI tests
-        run: ctest --test-dir build --output-on-failure -E ui_smoke
+        run: |
+          # Report any DLL the UI test cannot find (diagnoses 0xc0000135).
+          $deps = dumpbin /nologo /dependents build/tests/hcad_ui_tests.exe | Select-String '\.dll' | ForEach-Object { $_.ToString().Trim() }
+          foreach ($d in $deps) {
+            $local = Test-Path (Join-Path build/tests $d)
+            $onPath = $null -ne (Get-Command $d -ErrorAction SilentlyContinue)
+            $sys = Test-Path (Join-Path $env:WINDIR "System32/$d")
+            if (-not ($local -or $onPath -or $sys)) { Write-Host "MISSING DLL: $d" }
+          }
+          ctest --test-dir build --output-on-failure -E ui_smoke
       - name: Stage and pack 0.1.0-alpha
         run: |
           ./packaging/windows/stage.ps1 -BuildDir build -StageDir stage/0.1.0 -Prefix "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
