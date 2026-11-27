@@ -3,6 +3,7 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QFile>
 #include <QPointer>
 #include <thread>
 
@@ -68,6 +69,13 @@ public:
 
   void configure(const QString& feed, const QString& channel) override {
     if (mgr_) { vpkc_free_update_manager(mgr_); mgr_ = nullptr; }
+    // Velopack layout: <root>/Update.exe and <root>/current/HybridCAD.exe.
+    // A build folder or portable copy cannot update itself; do not touch the
+    // Velopack library at all in that case.
+    if (!QFile::exists(QCoreApplication::applicationDirPath() + "/../Update.exe")) {
+      setState(State::Unsupported, "Updates need an installed copy of HybridCAD (this copy runs from a build or portable folder).");
+      return;
+    }
     feed_ = feed.toUtf8();
     channel_ = channel.toUtf8();
     vpkc_update_options_t opt{};
