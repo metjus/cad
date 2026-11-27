@@ -1,7 +1,6 @@
 # Phase 0 Report — Architecture and Proof of Concept
 
-Version: `0.0.1-phase0` · Date: 2026-11-27 · Status: **awaiting owner review**
-(Phase 1 is not started.)
+Version: `0.0.1-phase0` · Date: 2026-11-27 · Status: **reviewed; Phase 1 approved** by the owner on 2026-11-27.
 
 ## 1. What was done
 
@@ -96,14 +95,13 @@ Top risks (full register in TECH_DECISIONS.md): OCCT fillet/boolean robustness
 expectations (R4), solver licensing depending on product licence (R5),
 code-signing for installer/updater trust (R8), and overall scope (R10).
 
-## 8. Decisions needed from the owner
+## 8. Owner decisions
 
-1. **Product licence model** (closed-source/commercial vs open-source). Default
-   assumption: closed-source, LGPL/permissive dependencies only.
-2. Product name (working title "HybridCAD").
-3. Code-signing certificate plan before public builds.
-4. Update hosting (GitHub Releases for alpha is the default).
-5. Approval of Phase 1 scope as listed in ROADMAP.md.
+Decided 2026-11-27: commercial closed-source product (no GPL dependencies),
+name HybridCAD, Phase 1 scope approved as in ROADMAP.md.
+
+Still open: code-signing certificate before public builds; update hosting
+(GitHub Releases for alpha is the default).
 
 ## 9. Recommended next step
 

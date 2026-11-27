@@ -1,8 +1,7 @@
 # Product Brief
 
-> Working title: **HybridCAD**. This is a placeholder; an original product name,
-> logo and icon set are still to be created (Phase 1). No Blender or Plasticity
-> branding, assets or code are used.
+> Product name: **HybridCAD** (confirmed by the owner). Logo and icon set are
+> created in Phase 1. No Blender or Plasticity branding, assets or code are used.
 
 ## Vision
 
@@ -53,11 +52,19 @@ See [ROADMAP.md](ROADMAP.md). Phase 0 (this deliverable) validates the stack
 with a working proof of concept; Phase 1 builds the professional UI shell,
 installer and updater.
 
-## Open product decisions (need owner input)
+## Product decisions
+
+Decided by the owner on 2026-11-27:
+
+| # | Decision | Result |
+|---|---|---|
+| P1 | Licence model | **Commercial, closed-source.** No GPL components in shipped binaries (SolveSpace solver and CGAL excluded; PlaneGCS/LGPL path for sketches). |
+| P2 | Product name | **HybridCAD**, file extension `.hcad`. A logo and icon set are still to be designed. |
+| P5 | Phase 1 scope | Approved as in ROADMAP.md, details left to engineering judgement. |
+
+Still open:
 
 | # | Decision | Why it matters | Default if not decided |
 |---|---|---|---|
-| P1 | Will the product be closed-source/commercial or open-source? | Determines whether GPL components (SolveSpace solver, CGAL) are usable. LGPL (OCCT, Qt) works for both. | Assume closed-source; use only LGPL/permissive dependencies. |
-| P2 | Final product name and visual identity | Needed for installer, update feed, file extension, icons. | Working title "HybridCAD", extension `.hcad`. |
 | P3 | Code-signing certificate (OV / EV / Azure Trusted Signing) | Unsigned installers trigger SmartScreen warnings; updater signature checks rely on it. | Unsigned alpha builds with a clear warning until a certificate exists. |
 | P4 | Update hosting (GitHub Releases vs own HTTPS bucket/CDN) | Affects privacy, bandwidth, beta channel management. | GitHub Releases for alpha, static HTTPS bucket later. |

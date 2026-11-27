@@ -259,7 +259,7 @@ void MainWindow::buildMenus() {
 
   auto* help = menuBar()->addMenu("&Help");
   help->addAction("About", this, [this] {
-    QMessageBox::about(this, "About", "HybridCAD (working title) — Phase 0 technical proof of concept.\n\n"
+    QMessageBox::about(this, "About", "HybridCAD — Phase 0 technical proof of concept.\n\n"
                                       "Geometry: Open CASCADE Technology " OCC_VERSION_COMPLETE "\nUI: Qt " QT_VERSION_STR);
   });
 }

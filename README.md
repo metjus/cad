@@ -1,4 +1,4 @@
-# HybridCAD (working title)
+# HybridCAD
 
 A native Windows parametric CAD application combining Blender-like
 interaction, Plasticity-inspired direct and NURBS modelling, and fully editable

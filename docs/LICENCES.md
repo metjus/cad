@@ -1,9 +1,9 @@
 # Dependency and Licence Review
 
-Status: Phase 0 review, 2026-11-27. **Assumption until the owner decides
-(PRODUCT_BRIEF P1): the product may be closed-source/commercial**, so only
-LGPL and permissive licences are allowed in shipped binaries. GPL code is
-listed only to explain why it is excluded.
+Status: Phase 0 review, 2026-11-27. **Owner decision (2026-11-27): the
+product is commercial and closed-source.** Only LGPL and permissive licences
+are allowed in shipped binaries. GPL code is listed only to explain why it is
+excluded.
 
 This is an engineering review, not legal advice. Licence texts must be
 re-checked against the exact versions pinned in vcpkg before each release.
@@ -44,7 +44,7 @@ re-checked against the exact versions pinned in vcpkg before each release.
 
 | Component | Licence | Reason |
 |---|---|---|
-| SolveSpace / libslvs | GPL-3.0 | Would force the whole application under GPL. Usable only if owner chooses GPL (P1). |
+| SolveSpace / libslvs | GPL-3.0 | Would force the whole application under GPL. Excluded (product is commercial). |
 | CGAL (most packages) | GPL-3.0 / commercial | Same reason; commercial licence possible if a specific algorithm is essential (identify before Phase 6). |
 | FreeImage | GPL-2/3 or FIPL | OCCT optional; not needed (Qt handles images). Build OCCT without it. |
 | FFmpeg (OCCT optional video) | LGPL/GPL | Not needed; build OCCT without it. |

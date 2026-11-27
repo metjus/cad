@@ -86,7 +86,7 @@ the native window is resized.
 Phase 1 evaluates OCCT's `QOpenGLWidget` integration (OCCT renders into the
 widget's FBO) for overlays, smoother docking and consistent high-DPI.
 
-## ADR-005 Sketch constraint solver — Proposed (decide in Phase 3)
+## ADR-005 Sketch constraint solver — PlaneGCS path (commercial product; prototype in Phase 3)
 
 | Solver | Licence | Notes |
 |---|---|---|
@@ -97,8 +97,9 @@ widget's FBO) for overlays, smoother docking and consistent high-DPI.
 
 **Recommendation:** PlaneGCS behind an `ISketchSolver` interface; build a
 small benchmark (rectangle with constraints, slot, tangent arcs, 200-entity
-sketch) in Phase 3 against libslvs. If the product becomes GPL, libslvs is a
-valid alternative.
+sketch) in Phase 3. libslvs is excluded because the product is commercial
+(owner decision 2026-11-27); D-Cubed stays the paid fallback if PlaneGCS
+proves insufficient.
 
 ## ADR-006 NURBS strategy — Accepted
 
@@ -159,7 +160,7 @@ See TEST_STRATEGY.md.
 | R2 | Topological naming breaks in complex histories (sketch edits that change curve count, booleans splitting faces) | High | High | Semantic naming from day one (done), geometric fallback matcher, repair UI, large reference-stability test suite. |
 | R3 | Performance of recompute/tessellation on large models | Medium | High | Dirty-flag DAG, background recompute, cached results, parallel `BRepMesh`, LOD tessellation. |
 | R4 | Mesh-to-NURBS quality is fundamentally hard; user expectations ("one click to perfect CAD") | High | High | Communicate approximations with deviation reports, semi-automatic workflow with review steps, staged features, scope Mode B to suitable inputs. |
-| R5 | Sketch solver licensing/quality (GPL vs LGPL) | Medium | High | Decide product licence early (P1); PlaneGCS is the LGPL path. |
+| R5 | Sketch solver quality on the LGPL path | Medium | High | Product is commercial (decided), so PlaneGCS; benchmark in Phase 3, D-Cubed as paid fallback. |
 | R6 | Windows OpenGL driver variability (Intel iGPUs, remote desktop) | Medium | Medium | OCCT core profile ≥ 3.3, fallback flags, Mesa software renderer option, crash telemetry opt-in. |
 | R7 | LGPL compliance with installer/updater (relinking/replacing Qt/OCCT DLLs) | Low | Medium | Dynamic linking only, per-user install in a writable folder, ship licence texts and source offer. |
 | R8 | Code-signing not available → SmartScreen warnings, weaker update trust | Medium | Medium | Obtain certificate before public beta (P3). |
