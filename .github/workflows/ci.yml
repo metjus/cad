@@ -6,10 +6,15 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux:
     name: Linux (Ubuntu 24.04, OCCT 7.6, Qt 6.4)
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -26,7 +31,7 @@ jobs:
       - name: Build
         run: cmake --build build
       - name: Test (unit, geometry, UI smoke under Xvfb)
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --timeout 180
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -38,6 +43,7 @@ jobs:
   windows:
     name: Windows (MSVC, installer + in-app update round trip)
     runs-on: windows-2022
+    timeout-minutes: 60
     env:
       VELOPACK_VERSION: "1.2.161"
       PACK_ID: HybridCAD.App
@@ -91,7 +97,7 @@ jobs:
             $sys = Test-Path (Join-Path $env:WINDIR "System32/$d")
             if (-not ($local -or $onPath -or $sys)) { Write-Host "MISSING DLL: $d" }
           }
-          ctest --test-dir build --output-on-failure -E ui_smoke
+          ctest --test-dir build --output-on-failure --timeout 120 -E ui_smoke
       - name: Stage and pack 0.1.0-alpha
         run: |
           ./packaging/windows/stage.ps1 -BuildDir build -StageDir stage/0.1.0 -Prefix "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
