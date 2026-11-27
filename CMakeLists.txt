@@ -5,7 +5,7 @@ project(HybridCAD VERSION 0.1.0 LANGUAGES CXX)
 # from one commit (e.g. the 0.1.1-alpha used by the update round-trip test).
 set(HCAD_VERSION_FULL "${PROJECT_VERSION}-alpha" CACHE STRING "Full SemVer version, e.g. 0.1.0-alpha")
 if(NOT HCAD_VERSION_FULL MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)")
-  message(FATAL_ERROR "HCAD_VERSION_FULL must start with MAJOR.MINOR.PATCH")
+  message(FATAL_ERROR "HCAD_VERSION_FULL must start with MAJOR.MINOR.PATCH, got '${HCAD_VERSION_FULL}'")
 endif()
 set(HCAD_VERSION_MAJOR ${CMAKE_MATCH_1})
 set(HCAD_VERSION_MINOR ${CMAKE_MATCH_2})

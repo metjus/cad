@@ -4,15 +4,19 @@ A native Windows parametric CAD application combining Blender-like
 interaction, Plasticity-inspired direct and NURBS modelling, and fully editable
 parametric history, with mesh-to-CAD reverse engineering.
 
-**Status: Phase 0 — architecture and technical proof of concept.** Not a usable
-CAD application yet. See [docs/PHASE0_REPORT.md](docs/PHASE0_REPORT.md).
+**Status: 0.1.x-alpha — Phase 1 (UI foundation, installer, in-app updates).**
+Not a usable CAD application yet: it opens an example parametric project and
+imports mesh references; there are no modelling tools or project saving yet.
+See [docs/PHASE1_REPORT.md](docs/PHASE1_REPORT.md).
 
-![Proof of concept](docs/images/03_after_width_edit.png)
+![HybridCAD 0.1.0-alpha](docs/images/p1_08_command_palette.png)
 
 ## Documentation
 
 | Document | Content |
 |---|---|
+| [PHASE1_REPORT](docs/PHASE1_REPORT.md) | Results of Phase 1: UI shell, installer, updates |
+| [UPDATES](docs/UPDATES.md) | How installation, updates and user data work |
 | [PHASE0_REPORT](docs/PHASE0_REPORT.md) | Results of Phase 0, decisions, test results, risks |
 | [PRODUCT_BRIEF](docs/PRODUCT_BRIEF.md) | Vision, principles, non-goals, open owner decisions |
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | Layers, document model, recompute, topological naming |
@@ -50,19 +54,32 @@ micromamba activate hcad
 # from a "x64 Native Tools Command Prompt for VS 2022"
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_PREFIX_PATH="$env:CONDA_PREFIX\Library" -DHCAD_RUNTIME_DIRS="$env:CONDA_PREFIX\Library\bin" `
-  -DCMAKE_INSTALL_PREFIX="$pwd\dist\HybridCAD-PoC"
+  -DCMAKE_INSTALL_PREFIX="$pwd\dist\HybridCAD"
 cmake --build build
 ctest --test-dir build -E ui_smoke
 cmake --install build      # portable folder with required DLLs
 ```
 
-A ready-made portable build is attached to each CI run as the
-`HybridCAD-PoC-windows-x64` artifact. There is no installer yet (Phase 1).
+Add `-DHCAD_WITH_VELOPACK=ON -DVELOPACK_DIR=<extracted velopack_libc zip>` to
+enable installer hooks and in-app updates. The installer is produced with
+`vpk pack` (see [docs/UPDATES.md](docs/UPDATES.md) and the Windows CI job).
 
-## Using the proof of concept
+### Installing a CI build
 
+Each CI run attaches `HybridCAD-0.1.1-alpha-windows-x64-installer`. Run
+`HybridCAD.App-stable-Setup.exe`: it installs per user (no administrator
+rights) into `%LOCALAPPDATA%\HybridCAD.App` and adds a Start menu entry. The
+installer is not code-signed yet, so Windows SmartScreen will warn
+("More info" → "Run anyway").
+
+## Using it
+
+- F3 or Ctrl+K: search and run any command. Ctrl+F1 lists all shortcuts.
 - 1 / 2 / 3 / 4: Object / Vertex / Edge / Face selection. Click to select.
-- Middle mouse: orbit; Shift+Middle or right drag: pan; wheel: zoom; Home: fit.
+- Blender-style navigation (default): middle mouse orbit, Shift+middle pan,
+  wheel zoom. CAD-style (Preferences): middle mouse pan, Shift+middle orbit.
+- View cube (top right): click a face, edge or corner. 0 iso, 7/8/9 top, front,
+  right (Ctrl for the opposite side), 5 perspective, Home fit.
 - Edit parameters (e.g. `Width` → `90 mm` or `Height` → `Width * 0.5`) in the
   Parameters table, or a feature's fields after selecting it in History.
 - Right-click a History item: suppress, roll back, roll to end.

@@ -36,7 +36,8 @@ Rules (enforced by CMake target dependencies) **[PoC]**:
 - `hcad_kernel` depends on OCCT modelling toolkits only — never on Qt or
   visualization toolkits.
 - `hcad_document` depends on `hcad_kernel`; it never includes Qt.
-- `hcad_poc` (the app) is the only target linking Qt and OCCT visualization
+- `hcad_ui` (UI library) and `hcad_app` (`HybridCAD.exe`, only `main()`) are
+  the only targets linking Qt and OCCT visualization
   (`TKV3d`, `TKOpenGl`). The UI never calls modelling algorithms directly; it
   edits parameters/features and asks the document to recompute.
 

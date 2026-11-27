@@ -45,6 +45,7 @@ void applyDarkTheme(QApplication& app) {
     QLineEdit, QTableWidget, QListWidget, QTreeWidget { border: 1px solid #3a3d42; border-radius: 3px; }
     QLabel#error { color: #ff7a6a; }
     QLabel#hint { color: #8a8e94; }
+    QDialogButtonBox { dialogbuttonbox-buttons-have-icons: 0; }
   )");
 }
 

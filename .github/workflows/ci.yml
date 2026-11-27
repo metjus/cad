@@ -78,7 +78,7 @@ jobs:
             -DCMAKE_PREFIX_PATH="$prefix" `
             -DHCAD_RUNTIME_DIRS="$prefix/bin" `
             -DHCAD_WITH_VELOPACK=ON -DVELOPACK_DIR="$pwd/velopack" `
-            -DHCAD_VERSION_FULL=0.1.0-alpha
+            "-DHCAD_VERSION_FULL=0.1.0-alpha"
       - name: Build
         run: cmake --build build
       - name: Unit, geometry and UI tests
@@ -86,7 +86,7 @@ jobs:
       - name: Stage and pack 0.1.0-alpha
         run: |
           ./packaging/windows/stage.ps1 -BuildDir build -StageDir stage/0.1.0 -Prefix "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
-          vpk pack --packId $env:PACK_ID --packVersion 0.1.0-alpha --packDir stage/0.1.0 --mainExe HybridCAD.exe `
+          vpk pack --packId $env:PACK_ID --packVersion "0.1.0-alpha" --packDir stage/0.1.0 --mainExe HybridCAD.exe `
             --packTitle HybridCAD --packAuthors "HybridCAD" --channel stable --outputDir releases
           New-Item -ItemType Directory -Force installer-0.1.0 | Out-Null
           Copy-Item releases/*Setup.exe installer-0.1.0/
@@ -106,10 +106,10 @@ jobs:
           exit $p.ExitCode
       - name: Build, stage and pack 0.1.1-alpha (same code, next version)
         run: |
-          cmake build -DHCAD_VERSION_FULL=0.1.1-alpha
+          cmake build "-DHCAD_VERSION_FULL=0.1.1-alpha"
           cmake --build build
           ./packaging/windows/stage.ps1 -BuildDir build -StageDir stage/0.1.1 -Prefix "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
-          vpk pack --packId $env:PACK_ID --packVersion 0.1.1-alpha --packDir stage/0.1.1 --mainExe HybridCAD.exe `
+          vpk pack --packId $env:PACK_ID --packVersion "0.1.1-alpha" --packDir stage/0.1.1 --mainExe HybridCAD.exe `
             --packTitle HybridCAD --packAuthors "HybridCAD" --channel stable --outputDir releases
           Get-ChildItem releases | Format-Table Name, Length
           if (-not (Get-ChildItem releases/*0.1.1-alpha-delta.nupkg)) { throw "no delta package was produced" }
