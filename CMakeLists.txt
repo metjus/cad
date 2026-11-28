@@ -11,7 +11,7 @@ set(HCAD_VERSION_MAJOR ${CMAKE_MATCH_1})
 set(HCAD_VERSION_MINOR ${CMAKE_MATCH_2})
 set(HCAD_VERSION_PATCH ${CMAKE_MATCH_3})
 set(HCAD_PACK_ID "HybridCAD.App" CACHE STRING "Velopack package id (install folder name)")
-set(HCAD_UPDATE_FEED "https://github.com/metjus/cad/releases/latest/download" CACHE STRING "Default update feed URL")
+set(HCAD_UPDATE_FEED "https://github.com/metjus/cad" CACHE STRING "Default update feed URL")
 message(STATUS "HybridCAD version ${HCAD_VERSION_FULL}")
 
 set(CMAKE_CXX_STANDARD 20)

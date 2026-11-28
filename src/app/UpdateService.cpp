@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QFile>
+#include <QRegularExpression>
 #include <QPointer>
 #include <thread>
 
@@ -65,6 +66,7 @@ public:
     if (worker_.joinable()) worker_.join();
     if (info_) vpkc_free_update_info(info_);
     if (mgr_) vpkc_free_update_manager(mgr_);
+    if (source_) vpkc_free_source(source_);
   }
 
   void configure(const QString& feed, const QString& channel) override {
@@ -82,7 +84,18 @@ public:
     opt.AllowVersionDowngrade = false;
     opt.ExplicitChannel = channel_.isEmpty() ? nullptr : channel_.data();
     opt.MaximumDeltasBeforeFallback = 10;
-    if (!vpkc_new_update_manager(feed_.constData(), &opt, nullptr, &mgr_)) {
+    // A bare GitHub repository URL uses GitHub Releases (including
+    // pre-releases, which all alpha builds are); anything else is an HTTPS
+    // feed URL or a local folder.
+    bool ok = false;
+    static const QRegularExpression githubRepo("^https://github\\.com/[^/]+/[^/]+/?$");
+    if (githubRepo.match(feed).hasMatch()) {
+      if (!source_) source_ = vpkc_new_source_github(feed_.constData(), nullptr, true);
+      ok = source_ && vpkc_new_update_manager_with_source(source_, &opt, nullptr, &mgr_);
+    } else {
+      ok = vpkc_new_update_manager(feed_.constData(), &opt, nullptr, &mgr_);
+    }
+    if (!ok) {
       mgr_ = nullptr;
       // Typical cause: running from a build folder, not an installed copy.
       setState(State::Unsupported, "Updates need an installed copy of HybridCAD (" + lastError() + ")");
@@ -173,6 +186,7 @@ private:
   }
 
   vpkc_update_manager_t* mgr_ = nullptr;
+  vpkc_update_source_t* source_ = nullptr;
   vpkc_update_info_t* info_ = nullptr;
   QByteArray feed_, channel_;
   std::thread worker_;

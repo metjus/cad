@@ -117,9 +117,10 @@ Local run (Ubuntu 24.04, OCCT 7.6.3, Qt 6.4.2): 52/52 tests passed
 - **No saving or opening of projects** (Phase 2 as planned).
 - **Not code-signed**: Windows SmartScreen warns when installing. Needs a
   code-signing certificate (owner decision).
-- **No published release feed yet**: the default feed points at GitHub
-  Releases of this repository, but nothing is published there; where
-  production updates are hosted is an owner decision.
+- **No release published yet**: updates are hosted on GitHub Releases of
+  this repository (owner decision 2026-11-28). Pushing a `v*` tag publishes a
+  release through `.github/workflows/release.yml`; the first tag needs the
+  owner's go-ahead because the release is public.
 - **No user-triggered rollback** to the previous version. Velopack keeps the
   old version only if applying an update fails.
 - **Planned but not done**: vcpkg manifest (conda-forge kept, works for CI),
@@ -148,7 +149,6 @@ See [README.md](../README.md) (build) and [UPDATES.md](UPDATES.md)
 1. Project files: save/open `.hcad`, autosave and crash recovery, recent files.
 2. Undo/redo across parameter and feature edits.
 3. Crash handler (minidumps) and a "send report" flow.
-4. Publish the first real release to an HTTPS feed (after hosting decision)
-   and sign the installer (after certificate decision).
+4. Sign the installer once a code-signing certificate is decided.
 5. First sketch-based modelling (sketch on a plane, extrude), building on the
    command registry.

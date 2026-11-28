@@ -40,11 +40,15 @@ click.
 ## Channels and feed
 
 - Channels: `stable` (default) and `beta`, chosen in Preferences.
-- Default feed: `https://github.com/metjus/cad/releases/latest/download`
-  (GitHub Releases over HTTPS). **Not final**: where production releases are
-  hosted is an open owner decision; the feed can be changed in Preferences
-  (Release feed) or at build time with `-DHCAD_UPDATE_FEED=...`.
-- No release has been published to the feed yet. CI uses a local folder feed.
+- Default feed: **GitHub Releases** of `https://github.com/metjus/cad`
+  (owner decision 2026-11-28, for now). The app reads releases through the
+  GitHub API, including pre-releases (all alpha builds are pre-releases).
+  The feed can be changed in Preferences (Release feed) or at build time with
+  `-DHCAD_UPDATE_FEED=...`; any other URL is treated as a plain HTTPS feed.
+- Publishing: push a tag like `v0.1.0-alpha`. The `Release` workflow builds,
+  tests, downloads the previous release (so it can build a delta), packs and
+  uploads Setup.exe, the full and delta packages and the release index.
+- CI uses a local folder feed for the update round-trip test.
 
 ## Building an installer
 
@@ -64,6 +68,5 @@ Upload the whole folder content to the feed.
 - **Code signing**: the installer and executables are not signed, so
   SmartScreen warns on first install. A code-signing certificate is an open
   owner decision; `vpk pack` signs automatically once one is configured.
-- **Production feed hosting** (see above).
 - User-triggered rollback to the previous version is not implemented; Velopack
   only keeps the previous version if applying an update fails.
