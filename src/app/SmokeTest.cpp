@@ -1,5 +1,8 @@
 #include "app/SmokeTest.h"
 #include "app/MainWindow.h"
+#include "app/CommandPalette.h"
+#include "app/PreferencesDialog.h"
+#include "app/WelcomeDialog.h"
 
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
@@ -9,6 +12,7 @@
 #include <QFile>
 #include <QPainter>
 #include <QTimer>
+#include <cmath>
 #include <cstdio>
 
 namespace hcad::app {
@@ -30,7 +34,14 @@ struct Runner {
     w->viewport()->redraw();
     QApplication::processEvents();
   }
-  void shot(const QString& name) {
+  // Screenshot of a top-level dialog on its own.
+  void shotDialog(QWidget* dlg, const QString& name) {
+    dlg->show();
+    settle();
+    check(dlg->grab().save(dir + "/" + name + ".png"), "screenshot " + name);
+    dlg->hide();
+  }
+  void shot(const QString& name, QWidget* overlay = nullptr) {
     settle();
     // Widgets are grabbed by Qt; the native OpenGL viewport is rendered by
     // OCCT (V3d_View::Dump) and composited into its rectangle. Screen grabs of
@@ -42,6 +53,10 @@ struct Runner {
       QPainter p(&pm);
       const QRect rect(w->viewport()->mapTo(w, QPoint(0, 0)), w->viewport()->size());
       p.drawImage(rect, QImage(vp));
+    }
+    if (overlay && overlay->isVisible()) {
+      QPainter p(&pm);
+      p.drawPixmap(overlay->mapToGlobal(QPoint(0, 0)) - w->mapToGlobal(QPoint(0, 0)), overlay->grab());
     }
     QFile::remove(vp);
     check(pm.save(dir + "/" + name + ".png"), "screenshot " + name);
@@ -114,6 +129,50 @@ void runSmokeTest(MainWindow* w, const QString& outDir, const QString& meshPath)
     r.pickRef("CPEdit2", "Surface1.Surface");
     r.check(w->selectionText() == "CPEdit2 : Surface1.Surface", "NURBS face pick: " + w->selectionText());
     r.shot("05_nurbs_selected");
+
+    // ---- Phase 1: view cube, command palette, onboarding, preferences
+    {
+      r.check(w->commands().trigger("view.front"), "front view command");
+      r.settle();
+      double dx, dy, dz;
+      w->viewport()->view()->Proj(dx, dy, dz);
+      r.check(std::abs(dy + 1.0) < 1e-6, "front view looks along +Y");
+      // The cube sits 85 px from the top-right corner. Click along its
+      // vertical centre line until a cube part other than Front is hit.
+      const double dpr = w->viewport()->devicePixelRatioF();
+      const int cx = static_cast<int>((w->viewport()->width() - 85) * dpr);
+      w->setSelectionMode(SelectionMode::Object);
+      bool changed = false;
+      for (int off = -40; off <= 40 && !changed; off += 4) {
+        w->viewport()->pickAtPixel(cx, static_cast<int>((85 + off) * dpr), false);
+        w->viewport()->view()->Proj(dx, dy, dz);
+        changed = std::abs(dy + 1.0) > 1e-3;
+      }
+      r.settle();
+      r.check(changed, QString("view cube click changes the view (proj %1 %2 %3)").arg(dx).arg(dy).arg(dz));
+      r.check(w->selectionText().isEmpty(), "view cube click does not select model geometry");
+      r.check(w->commands().trigger("view.iso"), "isometric view command");
+      r.shot("07_view_cube");
+
+      const bool gridBefore = w->viewport()->gridVisible();
+      w->commands().trigger("view.grid");
+      r.check(w->viewport()->gridVisible() != gridBefore && w->commands().action("view.grid")->isChecked() == !gridBefore,
+              "grid toggle command updates viewport and check state");
+      w->commands().trigger("view.grid");
+
+      w->palette()->popup();
+      w->palette()->setQuery("view");
+      r.check(w->palette()->visibleIds().size() >= 7, QString("palette lists view commands (%1)").arg(w->palette()->visibleIds().size()));
+      r.shot("08_command_palette", w->palette());
+      w->palette()->setQuery("fit al");
+      r.check(!w->palette()->visibleIds().isEmpty() && w->palette()->visibleIds().front() == "view.fitAll", "palette: 'fit al' -> Fit All");
+      r.check(w->palette()->runCurrent(), "palette runs the highlighted command");
+
+      WelcomeDialog welcome(w->preferences(), w);
+      r.shotDialog(&welcome, "09_welcome");
+      PreferencesDialog prefs(w->preferences(), w);
+      r.shotDialog(&prefs, "10_preferences");
+    }
 
     if (!meshPath.isEmpty()) {
       r.check(w->importMeshFile(meshPath), "mesh import " + meshPath);

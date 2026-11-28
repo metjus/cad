@@ -1,5 +1,8 @@
 #pragma once
+#include "app/Preferences.h"
+
 #include <AIS_InteractiveContext.hxx>
+#include <AIS_ViewCube.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <V3d_View.hxx>
 #include <V3d_Viewer.hxx>
@@ -33,6 +36,20 @@ public:
   void markHelper(const Handle(AIS_InteractiveObject)& obj) { helpers_.insert(obj.get()); }
   void clearHelpers() { helpers_.clear(); }
 
+  // Navigation preset (brief §6): mouse mapping for orbit/pan/zoom.
+  void setNavigationStyle(NavigationStyle s) { nav_ = s; }
+  NavigationStyle navigationStyle() const { return nav_; }
+  static QString navigationHint(NavigationStyle s);
+
+  void setGridVisible(bool on);
+  bool gridVisible() const { return grid_; }
+  void setAxesVisible(bool on);
+  bool axesVisible() const { return axes_; }
+  void setViewCubeVisible(bool on);
+  bool viewCubeVisible() const { return cubeOn_; }
+  void setPerspective(bool on);
+  bool perspective() const;
+
   void fitAll();
   void setStandardView(V3d_TypeOfOrientation o);
   void redraw();
@@ -45,6 +62,7 @@ public:
 
 signals:
   void viewReady();
+  void viewOrientationChanged();
   void selectionChanged();
   void cursorModel(double x, double y, double z);
 
@@ -66,7 +84,11 @@ private:
   Handle(V3d_Viewer) viewer_;
   Handle(V3d_View) view_;
   Handle(AIS_InteractiveContext) context_;
+  bool handleViewCubeClick();
   SelectionMode mode_ = SelectionMode::Object;
+  NavigationStyle nav_ = NavigationStyle::Blender;
+  Handle(AIS_ViewCube) cube_;
+  bool grid_ = true, axes_ = true, cubeOn_ = true;
   std::set<const AIS_InteractiveObject*> helpers_;
 
   enum class Drag { None, Orbit, Pan, Zoom } drag_ = Drag::None;

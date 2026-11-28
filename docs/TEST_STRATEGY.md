@@ -44,7 +44,7 @@ feature propagates and clears when fixed — partially covered now).
 
 ## 4. UI smoke test
 
-`hcad_poc --smoke-test <dir> --mesh <file>` runs a script inside the real
+`HybridCAD --smoke-test <dir> --mesh <file>` runs a script inside the real
 application:
 
 1. Demo history computes.
@@ -55,8 +55,41 @@ application:
 4. Edge mode: pick `Edge(Box1.Front|Box1.Left)`; Vertex mode: pick
    `Vertex(Box1.Bottom|Box1.Front|Box1.Left)`.
 5. Face mode on the NURBS sheet → `CPEdit2 : Surface1.Surface`.
-6. Import `scan_sphere.obj` → watertight report.
-7. Screenshots after each step (`docs/images/`).
+6. Front view command; clicking the view cube changes the camera and does
+   not select model geometry; grid toggle updates viewport and check mark.
+7. Command palette: "view" lists the view commands, "fit al" ranks Fit All
+   first, Enter runs it.
+8. Welcome and Preferences dialogs open (screenshots).
+9. Import `scan_sphere.obj` → watertight report.
+10. Screenshots after each step (`docs/images/`).
+
+The smoke test runs in its own settings scope (`HybridCAD-SmokeTest`), so it
+never changes a user's settings.
+
+## 4a. UI unit tests (Phase 1)
+
+`hcad_ui_tests` runs with Qt's offscreen platform (no display, no OpenGL):
+command registry (enabled/checked state, triggering, search ranking), command
+palette filtering and recent commands, icon states, version macros, user data
+outside the install directory, preferences round trip, the null update
+service, and the main window: every menu and toolbar entry is a registered
+command with a description, every command is reachable from a menu, and no
+two commands share a shortcut.
+
+## 4b. Installer and update round trip (Phase 1, Windows CI)
+
+`packaging/windows/update-roundtrip.ps1`, run on every push:
+
+1. Build and `vpk pack` 0.1.0-alpha; rebuild the same commit as 0.1.1-alpha
+   and pack it into the same feed (vpk produces a delta package).
+2. Silent install of 0.1.0-alpha with its own `Setup.exe`.
+3. Write a user data file and a settings value.
+4. Start the installed app with `--update-test <feed>`: it checks the feed,
+   must be offered a **delta** update, downloads it, applies it and restarts
+   itself.
+5. The restarted app must report version 0.1.1-alpha and still see the
+   settings value; the user data file must still exist.
+6. Uninstall; the program is gone, the user data file is still there.
 
 Screenshots composite Qt widget grabs with OCCT's own offscreen render of the
 viewport because screen grabs of GL windows on virtual X servers are
@@ -68,9 +101,11 @@ unreliable.
 
 - **Linux**: Ubuntu 24.04 packages (OCCT 7.6, Qt 6.4), build, all tests
   including UI smoke under Xvfb, screenshots uploaded as artifacts.
-- **Windows**: MSVC 2022 + conda-forge OCCT 7.9 / Qt 6.8, build, unit and
-  geometry tests, portable package artifact, UI smoke test with Mesa
-  llvmpipe (marked non-blocking: hosted runners have no GPU).
+- **Windows**: MSVC 2022 + conda-forge OCCT 7.9 / Qt 6.8 with Velopack,
+  build, unit/geometry/UI tests, UI smoke test with Mesa llvmpipe (marked
+  non-blocking: hosted runners have no GPU), installer packaging and the
+  update round trip above. The installer and release feed are uploaded as
+  an artifact.
 
-Phase 1 adds: vcpkg-based release build, packaging with Velopack, update
-round-trip test, sanitizers (ASan/UBSan) on Linux, clang-tidy.
+Still planned: sanitizers (ASan/UBSan) on Linux, clang-tidy, tests on real
+GPUs (owner's PC).

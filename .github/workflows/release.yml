@@ -1,0 +1,89 @@
+name: Release
+
+# Publishes a Windows release to GitHub Releases (the default update feed).
+# Trigger: push a tag such as v0.1.0-alpha. Versions with a "-" suffix are
+# published as pre-releases. The previous release is downloaded first so that
+# vpk can build a delta package for in-app updates.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build and publish Windows release
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      VELOPACK_VERSION: "1.2.161"
+      PACK_ID: HybridCAD.App
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version from tag
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+') { throw "tag must look like v1.2.3 or v1.2.3-alpha" }
+          Add-Content $env:GITHUB_ENV "HCAD_VERSION=$v"
+          Add-Content $env:GITHUB_ENV ("HCAD_PRERELEASE=" + ($(if ($v.Contains('-')) { '1' } else { '0' })))
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: hcad
+          create-args: >-
+            -c conda-forge
+            occt=7.9
+            qt6-main=6.8
+            gtest
+            cmake
+            ninja
+          cache-environment: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Put conda DLLs on PATH
+        run: Add-Content $env:GITHUB_PATH "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library\bin"
+      - name: Get Velopack
+        run: |
+          Invoke-WebRequest "https://github.com/velopack/velopack/releases/download/$env:VELOPACK_VERSION/velopack_libc_$env:VELOPACK_VERSION.zip" -OutFile velopack_libc.zip
+          Expand-Archive velopack_libc.zip -DestinationPath velopack
+          dotnet tool install -g vpk --version $env:VELOPACK_VERSION
+      - name: Configure and build
+        run: |
+          $prefix = "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_PREFIX_PATH=$prefix" "-DHCAD_RUNTIME_DIRS=$prefix/bin" `
+            -DHCAD_WITH_VELOPACK=ON "-DVELOPACK_DIR=$pwd/velopack" `
+            "-DHCAD_VERSION_FULL=$env:HCAD_VERSION"
+          cmake --build build
+      - name: Tests
+        run: |
+          $prefix = "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
+          foreach ($d in @("$prefix\lib\qt6\plugins", "$prefix\plugins")) {
+            if (Test-Path "$d\platforms\qwindows.dll") { $env:QT_PLUGIN_PATH = $d; break }
+          }
+          ctest --test-dir build --output-on-failure --timeout 120 -E ui_smoke
+      - name: Stage, fetch previous release, pack
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./packaging/windows/stage.ps1 -BuildDir build -StageDir stage -Prefix "$env:MAMBA_ROOT_PREFIX\envs\hcad\Library"
+          New-Item -ItemType Directory -Force releases | Out-Null
+          # Previous release (if any) lets vpk produce a delta package.
+          vpk download github --repoUrl "https://github.com/${{ github.repository }}" --channel stable --token $env:GH_TOKEN --pre --outputDir releases
+          vpk pack --packId $env:PACK_ID --packVersion "$env:HCAD_VERSION" --packDir stage --mainExe HybridCAD.exe `
+            --packTitle HybridCAD --packAuthors "HybridCAD" --channel stable --outputDir releases
+          Get-ChildItem releases | Format-Table Name, Length
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $vpkArgs = @("upload", "github", "--repoUrl", "https://github.com/${{ github.repository }}", "--token", $env:GH_TOKEN,
+                    "--channel", "stable", "--outputDir", "releases", "--publish", "--merge",
+                    "--releaseName", "HybridCAD $env:HCAD_VERSION", "--tag", "${{ github.ref_name }}")
+          if ($env:HCAD_PRERELEASE -eq '1') { $vpkArgs += "--pre" }
+          vpk @vpkArgs

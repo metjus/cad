@@ -1,6 +1,11 @@
 #include "app/OcctViewWidget.h"
 
+#include <AIS_AnimationCamera.hxx>
 #include <AIS_Shape.hxx>
+#include <Graphic3d_TransformPers.hxx>
+#include <Prs3d_DatumAspect.hxx>
+#include <Prs3d_ShadingAspect.hxx>
+#include <Prs3d_TextAspect.hxx>
 #include <Aspect_DisplayConnection.hxx>
 #include <Graphic3d_RenderingParams.hxx>
 #include <OpenGl_GraphicDriver.hxx>
@@ -70,11 +75,12 @@ void OcctViewWidget::initViewer() {
   const int msaa = qEnvironmentVariableIntValue("HCAD_MSAA", &msaaSet);
   view_->ChangeRenderingParams().NbMsaaSamples = msaaSet ? msaa : 4;
   view_->ChangeRenderingParams().IsAntialiasingEnabled = true;
-  view_->TriedronDisplay(Aspect_TOTP_LEFT_LOWER, Quantity_NOC_WHITE, 0.09, V3d_ZBUFFER);
+  setAxesVisible(axes_);
 
+  // Construction grid on the XY plane: 10 mm cells, 400 x 400 mm.
   viewer_->SetRectangularGridValues(0, 0, 10, 10, 0);
   viewer_->SetRectangularGridGraphicValues(200, 200, 0);
-  viewer_->ActivateGrid(Aspect_GT_Rectangular, Aspect_GDM_Lines);
+  setGridVisible(grid_);
 
   context_ = new AIS_InteractiveContext(viewer_);
   context_->SetPixelTolerance(4);
@@ -87,6 +93,20 @@ void OcctViewWidget::initViewer() {
   context_->DefaultDrawer()->SetFaceBoundaryDraw(true);
   context_->DefaultDrawer()->SetFaceBoundaryAspect(new Prs3d_LineAspect(rgb(20, 20, 22), Aspect_TOL_SOLID, 1.0));
   context_->SetDisplayMode(AIS_Shaded, false);
+
+  // Orientation cube (top right). Clicking a face, edge or corner snaps the
+  // camera to that standard view.
+  cube_ = new AIS_ViewCube();
+  cube_->SetSize(52);
+  cube_->SetBoxColor(rgb(70, 74, 80));
+  cube_->SetTransparency(0.15);
+  cube_->SetFontHeight(11);
+  cube_->SetTextColor(Quantity_NOC_WHITE);
+  cube_->SetAxesLabels("X", "Y", "Z");
+  cube_->SetDrawAxes(false);
+  cube_->SetTransformPersistence(new Graphic3d_TransformPers(Graphic3d_TMF_TriedronPers, Aspect_TOTP_RIGHT_UPPER, Graphic3d_Vec2i(85, 85)));
+  cube_->SetViewAnimation(Handle(AIS_AnimationCamera)());
+  if (cubeOn_) setViewCubeVisible(true);
 
   view_->MustBeResized();
   emit viewReady();
@@ -143,6 +163,7 @@ void OcctViewWidget::setSelectionMode(SelectionMode m) {
 void OcctViewWidget::activateSelectionMode(const Handle(AIS_InteractiveObject)& obj) {
   if (context_.IsNull() || obj.IsNull()) return;
   context_->Deactivate(obj);
+  if (obj == cube_) { context_->Activate(obj, 0); return; }
   if (!obj->IsKind(STANDARD_TYPE(AIS_Shape))) {
     if (mode_ == SelectionMode::Object) context_->Activate(obj, 0);
     return;
@@ -154,6 +175,59 @@ void OcctViewWidget::activateSelectionMode(const Handle(AIS_InteractiveObject)& 
   case SelectionMode::Edge: context_->Activate(obj, AIS_Shape::SelectionMode(TopAbs_EDGE)); break;
   case SelectionMode::Face: context_->Activate(obj, AIS_Shape::SelectionMode(TopAbs_FACE)); break;
   }
+}
+
+bool OcctViewWidget::handleViewCubeClick() {
+  if (cube_.IsNull() || !context_->HasDetected()) return false;
+  Handle(AIS_ViewCubeOwner) owner = Handle(AIS_ViewCubeOwner)::DownCast(context_->DetectedOwner());
+  if (owner.IsNull()) return false;
+  setStandardView(owner->MainOrientation());
+  return true;
+}
+
+QString OcctViewWidget::navigationHint(NavigationStyle s) {
+  return s == NavigationStyle::Blender
+    ? "MMB orbit · Shift+MMB pan · Ctrl+MMB / wheel zoom · RMB drag pan"
+    : "Shift+MMB orbit · MMB pan · wheel zoom · RMB drag pan";
+}
+
+void OcctViewWidget::setGridVisible(bool on) {
+  grid_ = on;
+  if (viewer_.IsNull()) return;
+  if (on) viewer_->ActivateGrid(Aspect_GT_Rectangular, Aspect_GDM_Lines);
+  else viewer_->DeactivateGrid();
+  redraw();
+}
+
+void OcctViewWidget::setAxesVisible(bool on) {
+  axes_ = on;
+  if (view_.IsNull()) return;
+  if (on) view_->TriedronDisplay(Aspect_TOTP_LEFT_LOWER, Quantity_NOC_WHITE, 0.09, V3d_ZBUFFER);
+  else view_->TriedronErase();
+  redraw();
+}
+
+void OcctViewWidget::setViewCubeVisible(bool on) {
+  cubeOn_ = on;
+  if (context_.IsNull() || cube_.IsNull()) return;
+  if (on) {
+    if (!context_->IsDisplayed(cube_)) context_->Display(cube_, 0, 0, false);
+    activateSelectionMode(cube_);
+  } else if (context_->IsDisplayed(cube_)) {
+    context_->Remove(cube_, false);
+  }
+  redraw();
+}
+
+void OcctViewWidget::setPerspective(bool on) {
+  if (view_.IsNull()) return;
+  view_->Camera()->SetProjectionType(on ? Graphic3d_Camera::Projection_Perspective : Graphic3d_Camera::Projection_Orthographic);
+  view_->ZFitAll();
+  redraw();
+}
+
+bool OcctViewWidget::perspective() const {
+  return !view_.IsNull() && view_->Camera()->ProjectionType() == Graphic3d_Camera::Projection_Perspective;
 }
 
 void OcctViewWidget::fitAll() {
@@ -168,12 +242,14 @@ void OcctViewWidget::setStandardView(V3d_TypeOfOrientation o) {
   if (view_.IsNull()) return;
   view_->SetProj(o);
   fitAll();
+  emit viewOrientationChanged();
 }
 
 bool OcctViewWidget::pickAtPixel(int x, int y, bool extend) {
   if (context_.IsNull()) return false;
   syncSize();
   context_->MoveTo(x, y, view_, false);
+  if (handleViewCubeClick()) return false;
   if (extend) context_->SelectDetected(AIS_SelectionScheme_XOR);
   else context_->SelectDetected(AIS_SelectionScheme_Replace);
   view_->Redraw();
@@ -198,11 +274,19 @@ void OcctViewWidget::mousePressEvent(QMouseEvent* e) {
   const QPoint p = toPixels(e->position());
   pressPos_ = lastPos_ = p;
   moved_ = false;
-  const bool alt = e->modifiers() & Qt::AltModifier;
+  const Qt::KeyboardModifiers mods = e->modifiers();
+  const bool alt = mods & Qt::AltModifier;
+  const bool shift = mods & Qt::ShiftModifier;
+  const bool ctrl = mods & Qt::ControlModifier;
   if (e->button() == Qt::MiddleButton || (alt && e->button() == Qt::LeftButton)) {
-    if (e->modifiers() & Qt::ShiftModifier) drag_ = Drag::Pan;
-    else if (e->modifiers() & Qt::ControlModifier) drag_ = Drag::Zoom;
-    else { drag_ = Drag::Orbit; view_->StartRotation(p.x(), p.y()); }
+    if (nav_ == NavigationStyle::Blender) {
+      // Blender-style: MMB orbit, Shift+MMB pan, Ctrl+MMB zoom.
+      drag_ = shift ? Drag::Pan : ctrl ? Drag::Zoom : Drag::Orbit;
+    } else {
+      // CAD-style: MMB pan, Shift+MMB orbit, Ctrl+MMB zoom.
+      drag_ = shift ? Drag::Orbit : ctrl ? Drag::Zoom : Drag::Pan;
+    }
+    if (drag_ == Drag::Orbit) view_->StartRotation(p.x(), p.y());
   } else if (e->button() == Qt::RightButton) {
     drag_ = Drag::Pan;
   }

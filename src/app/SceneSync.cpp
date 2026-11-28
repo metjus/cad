@@ -26,6 +26,7 @@ void SceneSync::rebuild(const doc::Document& doc) {
   auto ctx = view_->context();
   ctx->RemoveAll(false);
   view_->clearHelpers();
+  view_->setViewCubeVisible(view_->viewCubeVisible()); // re-add overlay
   owners_.clear();
   bodies_.clear();
 

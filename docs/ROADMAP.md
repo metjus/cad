@@ -20,7 +20,7 @@ known limitations, screenshots, build/installation instructions, version.
 | 9 | 0.9.x | Import/export and manufacturing | STEP/IGES/STL/OBJ/3MF/DXF both ways, tessellation settings, watertight/export validation. |
 | 10 | 1.0.0 | Stabilisation and distribution | Performance, crash logging, update reliability, Windows 10/11 test matrix, production channel. |
 
-## Phase 1 plan (proposed, awaiting approval)
+## Phase 1 plan (approved 2026-11-27, delivered — see PHASE1_REPORT.md)
 
 1. **Foundation:** vcpkg manifest, MSVC release build, spdlog logging, crash
    handler, `CommandRegistry`, settings service.
